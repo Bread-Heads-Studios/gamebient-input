@@ -1,0 +1,23 @@
+[package]
+name = "gamebient-input"
+version = "0.1.0"
+edition = "2024"
+description = "The Gamebient control canon for Bevy games: one GameInput resource fed by keyboard, gamepad, touch overlay and the ColecoVision GX host protocol."
+license = "MIT"
+repository = "https://github.com/Bread-Heads-Studios/gamebient-input"
+
+[dependencies]
+# Minimal Bevy surface: ECS/app/input are unconditional in bevy_internal, but
+# the keyboard and gamepad input modules are feature-gated in 0.18;
+# bevy_state is needed for StateEvents. Games enable their own render features.
+bevy = { version = "0.18", default-features = false, features = ["bevy_state", "keyboard", "gamepad", "std"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Must stay in lockstep with the wasm-bindgen-cli version pinned by the games'
+# install.sh / CI (0.2.108 at the time of writing).
+wasm-bindgen = "0.2.108"
+js-sys = "0.3"
+
+[lints.clippy]
+too_many_arguments = "allow"
+type_complexity = "allow"

@@ -1,0 +1,119 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GX host protocol harness</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; font: 13px/1.4 ui-monospace, Menlo, monospace; background: #0a0a0f; color: #e8e4df; display: grid; grid-template-rows: auto 1fr; height: 100vh; }
+  header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid #23242f; }
+  header input[type=url] { flex: 1 1 320px; min-width: 200px; background: #14141c; color: inherit; border: 1px solid #363845; border-radius: 4px; padding: 6px 8px; font: inherit; }
+  button { font: inherit; background: #14141c; color: inherit; border: 1px solid #363845; border-radius: 4px; padding: 6px 10px; cursor: pointer; touch-action: none; user-select: none; }
+  button.on { background: rgba(0,212,255,.25); border-color: #00d4ff; }
+  button.pri { border-color: #00d4ff; color: #00d4ff; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; min-height: 0; }
+  iframe { width: 100%; height: 100%; border: 0; background: #000; }
+  aside { border-left: 1px solid #23242f; display: grid; grid-template-rows: auto auto 1fr; min-height: 0; }
+  .pad { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-bottom: 1px solid #23242f; }
+  .pad h3 { flex-basis: 100%; margin: 0 0 2px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: #7d7f8c; }
+  .checks { padding: 8px 10px; border-bottom: 1px solid #23242f; display: grid; gap: 3px; }
+  .checks div::before { content: "○ "; color: #7d7f8c; }
+  .checks div.ok::before { content: "● "; color: #4ade80; }
+  #log { overflow: auto; padding: 8px 10px; white-space: pre-wrap; word-break: break-all; font-size: 11.5px; color: #b3b0ab; }
+  #log .out { color: #00d4ff; } #log .in { color: #a78bfa; } #log .err { color: #f87171; }
+  label { display: inline-flex; gap: 4px; align-items: center; }
+</style>
+<header>
+  <span>host <b id="me"></b></span>
+  <input id="url" type="url" placeholder="http://127.0.0.1:8081/" value="http://127.0.0.1:8081/">
+  <button id="load" class="pri">Load</button>
+  <label><input id="hostctl" type="checkbox"> host has controls</label>
+  <button id="hello">send gx:hello</button>
+</header>
+<main>
+  <iframe id="game" allow="autoplay; gamepad; fullscreen"></iframe>
+  <aside>
+    <div class="pad" id="gxpad">
+      <h3>gx:input (hold)</h3>
+      <button data-bit="1">Up</button><button data-bit="2">Down</button><button data-bit="4">Left</button><button data-bit="8">Right</button>
+      <button data-bit="16">A</button><button data-bit="32">B</button><button data-bit="64">Start</button><button data-bit="128">Select</button><button data-bit="256">Pause</button>
+      <h3>legacy keyEvent (hold)</h3>
+      <button data-code="Enter" data-key="Enter">Enter</button><button data-code="KeyZ" data-key="z">Z</button><button data-code="KeyX" data-key="x">X</button>
+      <button data-code="ArrowLeft" data-key="ArrowLeft">←</button><button data-code="ArrowRight" data-key="ArrowRight">→</button><button data-code="Escape" data-key="Escape">Esc</button>
+      <h3>gx:set</h3>
+      <button data-set='{"paused":true}'>pause</button><button data-set='{"paused":false}'>resume</button><button data-set='{"muted":true}'>mute</button><button data-set='{"muted":false}'>unmute</button>
+    </div>
+    <div class="checks">
+      <div id="c-hello">gx:hello received (name, aspect, hasTouchControls)</div>
+      <div id="c-ready">event: ready</div>
+      <div id="c-state">event: state</div>
+      <div id="c-playing">event: state = Playing</div>
+    </div>
+    <div id="log"></div>
+  </aside>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  $('me').textContent = location.origin;
+  const frame = $('game');
+  const log = $('log');
+  let gameOrigin = null;
+  let held = 0;
+  let answered = false; // answer the game's hello once per load
+
+  const line = (cls, text) => {
+    const el = document.createElement('div');
+    el.className = cls;
+    el.textContent = `${new Date().toISOString().slice(11, 23)} ${text}`;
+    log.prepend(el);
+  };
+  const post = (obj) => {
+    if (!gameOrigin || !frame.contentWindow) { line('err', 'no frame origin yet'); return; }
+    frame.contentWindow.postMessage(obj, gameOrigin);
+    line('out', '→ ' + JSON.stringify(obj));
+  };
+  const hello = () => post({ type: 'gx:hello', v: 1, hostHasControls: $('hostctl').checked });
+
+  $('load').onclick = () => {
+    const url = $('url').value.trim();
+    try { gameOrigin = new URL(url).origin; } catch { line('err', 'bad url'); return; }
+    for (const c of document.querySelectorAll('.checks div')) c.classList.remove('ok');
+    answered = false;
+    frame.src = url;
+    line('in', `loading ${url} (origin ${gameOrigin})`);
+  };
+  $('hello').onclick = hello;
+  $('hostctl').onchange = hello;
+
+  window.addEventListener('message', (e) => {
+    if (e.origin !== gameOrigin) { line('err', `ignored message from ${e.origin}`); return; }
+    const d = e.data;
+    line('in', '← ' + JSON.stringify(d));
+    if (!d || typeof d !== 'object') return;
+    if (d.type === 'gx:hello') {
+      if (typeof d.name === 'string' && typeof d.aspect === 'string' && typeof d.hasTouchControls === 'boolean') $('c-hello').classList.add('ok');
+      if (!answered) { answered = true; hello(); } // answer once, so events come to us
+    }
+    if (d.type === 'gx:event') {
+      if (d.event === 'ready') $('c-ready').classList.add('ok');
+      if (d.event === 'state') { $('c-state').classList.add('ok'); if (d.state === 'Playing') $('c-playing').classList.add('ok'); }
+    }
+  });
+
+  // gx:input buttons: hold semantics, full state on every change.
+  for (const btn of document.querySelectorAll('#gxpad button[data-bit]')) {
+    const bit = Number(btn.dataset.bit);
+    const down = (e) => { e.preventDefault(); btn.classList.add('on'); held |= bit; post({ type: 'gx:input', v: 1, buttons: held, ax: 0, ay: 0 }); };
+    const up = (e) => { if (!btn.classList.contains('on')) return; e.preventDefault(); btn.classList.remove('on'); held &= ~bit; post({ type: 'gx:input', v: 1, buttons: held, ax: 0, ay: 0 }); };
+    btn.addEventListener('pointerdown', down); btn.addEventListener('pointerup', up); btn.addEventListener('pointercancel', up); btn.addEventListener('pointerleave', up);
+  }
+  for (const btn of document.querySelectorAll('#gxpad button[data-code]')) {
+    const msg = (eventType) => ({ type: 'keyEvent', key: btn.dataset.key, code: btn.dataset.code, eventType });
+    btn.addEventListener('pointerdown', (e) => { e.preventDefault(); btn.classList.add('on'); post(msg('keydown')); });
+    const up = (e) => { if (!btn.classList.contains('on')) return; e.preventDefault(); btn.classList.remove('on'); post(msg('keyup')); };
+    btn.addEventListener('pointerup', up); btn.addEventListener('pointercancel', up); btn.addEventListener('pointerleave', up);
+  }
+  for (const btn of document.querySelectorAll('#gxpad button[data-set]')) {
+    btn.onclick = () => post({ type: 'gx:set', v: 1, ...JSON.parse(btn.dataset.set) });
+  }
+  window.addEventListener('blur', () => { if (held) { held = 0; post({ type: 'gx:input', v: 1, buttons: 0 }); } });
+</script>
