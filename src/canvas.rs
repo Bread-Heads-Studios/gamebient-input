@@ -147,4 +147,27 @@ mod tests {
         app.add_plugins((bevy::state::app::StatesPlugin, GxInputPlugin::named("t")));
         assert_eq!(*app.world().resource::<CanvasPolicy>(), CanvasPolicy::Fit);
     }
+
+    /// Plugins in a tuple build in order, so a game that adds
+    /// `GxInputPlugin` before `WindowPlugin` (instead of after
+    /// `DefaultPlugins`, as documented) hits this plugin's build() before
+    /// the primary window exists: the build-time resource falls back to
+    /// `Fit` and stays wrong until Startup. This documents that fallback —
+    /// wasm's `init_web` re-derives from the real window at Startup and is
+    /// the actual source of truth (exercised by the harness, not unit
+    /// tests, since it only runs on wasm32).
+    #[test]
+    fn plugin_before_window_plugin_degrades_to_fit_at_build_time() {
+        use crate::GxInputPlugin;
+        let mut app = App::new();
+        app.add_plugins((
+            GxInputPlugin::named("t"),
+            bevy::window::WindowPlugin {
+                primary_window: Some(CanvasPolicy::PINNED_720P.window("t")),
+                ..Default::default()
+            },
+            bevy::state::app::StatesPlugin,
+        ));
+        assert_eq!(*app.world().resource::<CanvasPolicy>(), CanvasPolicy::Fit);
+    }
 }

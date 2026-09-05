@@ -9,6 +9,7 @@
 //! build step.
 
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use wasm_bindgen::prelude::*;
 
 use crate::buttons::Buttons;
@@ -75,10 +76,25 @@ impl Plugin for WebPlugin {
     }
 }
 
-fn init_web(config: Res<GxConfig>, policy: Res<CanvasPolicy>) {
+/// The plugin's `build()` derives `CanvasPolicy` from the primary `Window`
+/// too, but `build()` runs before `DefaultPlugins` inserts that window if a
+/// game orders its plugins differently, silently falling back to `Fit`. By
+/// Startup the window is guaranteed to exist, so this is the source of
+/// truth: re-derive here, update the resource so introspection matches, and
+/// only then decide whether to pin the canvas.
+fn init_web(
+    config: Res<GxConfig>,
+    mut policy: ResMut<CanvasPolicy>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+) {
     let hello = encode_hello(&config, gx_has_touch());
     gx_init(&hello, &config.extra_host_origins.join(","));
-    if let CanvasPolicy::Pinned { width, height } = *policy {
+    let derived = windows
+        .single()
+        .map(CanvasPolicy::from_window)
+        .unwrap_or(*policy);
+    *policy = derived;
+    if let CanvasPolicy::Pinned { width, height } = derived {
         gx_pin_canvas(width, height);
     }
 }

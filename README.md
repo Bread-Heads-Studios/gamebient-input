@@ -59,7 +59,7 @@ The plugin reads your `Window` and records a `CanvasPolicy`:
 
 `WindowResolution::with_scale_factor_override` never reduces the number of pixels rendered, on web or native. It only changes the logical size. Do not use it as a render scale.
 
-Your loader needs only `<div id="game-container"><canvas id="game"></canvas></div>`; the glue owns the sizing after `init()`.
+Your loader needs only `<div id="game-container"><canvas id="game"></canvas></div>`; the glue owns the sizing after `init()`. The canvas must sit inside a dedicated container element (the template's `#game-container`); a canvas directly under `<body>` is not centred.
 
 ## Using it in a game
 
@@ -68,7 +68,7 @@ Your loader needs only `<div id="game-container"><canvas id="game"></canvas></di
 gamebient-input = { git = "https://github.com/Bread-Heads-Studios/gamebient-input", tag = "v0.2.0" }
 ```
 
-The crate depends on `bevy` with `default-features = false` and only the features it needs (`bevy_state`, `keyboard`, `gamepad`, `std`); your game's own feature list drives everything else. On wasm it also needs `wasm-bindgen` at the exact version of your `wasm-bindgen-cli`.
+The crate depends on `bevy` with `default-features = false` and only the features it needs (`bevy_state`, `bevy_window`, `keyboard`, `gamepad`, `std`); your game's own feature list drives everything else. On wasm it also needs `wasm-bindgen` at the exact version of your `wasm-bindgen-cli`.
 
 Your `index.html` no longer needs a `message` listener or Presentation code. Keep the click-to-start gate; if a host may drive the game before the engine starts, expose your unlock as `window.__gxUnlock` so the host's first press can trigger it (see the template).
 
@@ -86,7 +86,7 @@ python3 -m http.server 8082 --directory harness
 GAME_DIST=dist PLAYING_STATE=Playing node ../gamebient-input/harness/conformance.mjs
 ```
 
-Add `EXPECT_BACKBUFFER=1280x720` to also assert the pinned backbuffer under a real device scale factor (`DEVICE_SCALE_FACTOR`, default 2). Emulated DPR cannot test this; the harness relaunches Chrome with `--force-device-scale-factor`.
+Add `EXPECT_BACKBUFFER=1280x720` to also assert the pinned backbuffer under a real device scale factor (`DEVICE_SCALE_FACTOR`, default 2), and that the canvas was letterboxed to the expected rendered (CSS) box in the viewport — not just that `canvas.width`/`height` happen to match (the HTML default is 300×150, and the pre-`gxPinCanvas` size is the configured 1280×720, so a naive width check can pass before the glue ever runs). Emulated DPR cannot test this; the harness relaunches Chrome with `--force-device-scale-factor`.
 
 It serves `dist/` and the harness on local ports (`GAME_PORT`, `HARNESS_PORT`, `CHROME_PORT` to change), drives the game to `PLAYING_STATE` with alternating `gx:input` and legacy `keyEvent` presses, then checks the touch overlay under touch emulation. Presses are spaced 3 s apart because Bevy clamps the frame delta under software rendering and the template's screen fades gate input.
 
