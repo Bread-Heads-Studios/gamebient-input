@@ -75,6 +75,8 @@ python3 -m http.server 8082 --directory harness
 GAME_DIST=dist PLAYING_STATE=Playing node ../gamebient-input/harness/conformance.mjs
 ```
 
+Add `EXPECT_BACKBUFFER=1280x720` to also assert the pinned backbuffer under a real device scale factor (`DEVICE_SCALE_FACTOR`, default 2). Emulated DPR cannot test this; the harness relaunches Chrome with `--force-device-scale-factor`.
+
 It serves `dist/` and the harness on local ports (`GAME_PORT`, `HARNESS_PORT`, `CHROME_PORT` to change), drives the game to `PLAYING_STATE` with alternating `gx:input` and legacy `keyEvent` presses, then checks the touch overlay under touch emulation. Presses are spaced 3 s apart because Bevy clamps the frame delta under software rendering and the template's screen fades gate input.
 
 ## Development
