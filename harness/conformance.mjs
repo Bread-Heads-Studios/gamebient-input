@@ -126,11 +126,12 @@ try {
 
   // gx:set pause round-trip: the game should answer with paused events.
   if (results.playing) {
-    const pausedEvents = () => evaluate(h, `[...document.querySelectorAll('#log div.in')].map(d=>d.textContent).filter(t=>t.includes('"event":"paused"')).map(t=>t.includes('"paused":true')).reverse()`);
+    // Page-side expression: newest-first log lines → latest `paused` value.
+    const latestPaused = `[...document.querySelectorAll('#log div.in')].map(d=>d.textContent).filter(t=>t.includes('"event":"paused"')).map(t=>t.includes('"paused":true'))[0]`;
     await evaluate(h, "post({type:'gx:set',v:1,paused:true}); 1");
-    const pausedOn = await waitFor(h, `(${pausedEvents.toString()})().at(-1) === true`, 8000, 'paused event (true)');
+    const pausedOn = await waitFor(h, `${latestPaused} === true`, 8000, 'paused event (true)');
     await evaluate(h, "post({type:'gx:set',v:1,paused:false}); 1");
-    const pausedOff = await waitFor(h, `(${pausedEvents.toString()})().at(-1) === false`, 8000, 'paused event (false)');
+    const pausedOff = await waitFor(h, `${latestPaused} === false`, 8000, 'paused event (false)');
     results.pauseCommand = pausedOn && pausedOff;
   }
 
