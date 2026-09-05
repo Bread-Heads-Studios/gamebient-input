@@ -1,6 +1,6 @@
 [package]
 name = "gamebient-input"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 description = "The Gamebient control canon for Bevy games: one GameInput resource fed by keyboard, gamepad, touch overlay and the ColecoVision GX host protocol."
 license = "MIT"
