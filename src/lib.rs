@@ -72,15 +72,26 @@ impl Plugin for GxInputPlugin {
     fn build(&self, app: &mut App) {
         // Derive the canvas policy from the window the game configured (added
         // by DefaultPlugins, so this plugin must come after them). Without a
-        // primary window (tests, headless tools) there is nothing to pin.
+        // primary window (tests, headless tools, or this plugin added before
+        // WindowPlugin) there is nothing to pin yet, so this defaults to
+        // Fit; on wasm, Startup's init_web re-derives from the primary
+        // window (which is guaranteed to exist by then) and is the source
+        // of truth, updating this resource in place.
         let policy = {
             let mut primary = app
                 .world_mut()
                 .query_filtered::<&Window, With<bevy::window::PrimaryWindow>>();
-            primary
-                .single(app.world())
-                .map(CanvasPolicy::from_window)
-                .unwrap_or(CanvasPolicy::Fit)
+            primary.single(app.world()).map(CanvasPolicy::from_window)
+        };
+        let policy = match policy {
+            Ok(policy) => policy,
+            Err(_) => {
+                log::warn!(
+                    "gamebient-input: no PrimaryWindow at plugin build; add GxInputPlugin \
+                     after DefaultPlugins — canvas policy defaults to Fit until Startup"
+                );
+                CanvasPolicy::Fit
+            }
         };
         app.insert_resource(policy);
         app.insert_resource(self.config.clone())
