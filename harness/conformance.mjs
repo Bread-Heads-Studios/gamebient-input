@@ -159,8 +159,6 @@ try {
     await sleep(500);
     results.overlayHiddenByHost = await evaluate(g, "document.getElementById('gx-pad').hidden === true");
   }
-  results.consoleErrors = consoleLines.filter((l) => /panicked|EXCEPTION|Failed to/.test(l));
-
   // --- Scenario C: pinned backbuffer under a REAL device scale factor ---
   // EXPECT_BACKBUFFER=1280x720 asserts canvas.width/height once the engine
   // runs, in a fresh Chrome launched with --force-device-scale-factor.
@@ -185,6 +183,7 @@ try {
     results.backbufferRun = bb;
     results.backbuffer = bb.backbuffer === EXPECT_BACKBUFFER && bb.dpr === dsf;
   }
+  results.consoleErrors = consoleLines.filter((l) => /panicked|EXCEPTION|Failed to/.test(l));
 } catch (e) {
   results.error = String(e);
 } finally {
