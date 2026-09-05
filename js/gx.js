@@ -308,6 +308,7 @@ function updateOverlayVisibility() {
 // aspect-preserving fit in the viewport, i.e. letterboxed. Fit games never
 // call gxPinCanvas and are left alone.
 let pinned = null; // { width, height } in device pixels
+let armedDpr = 0;  // devicePixelRatio the one live dppx listener is armed for
 
 function fitPinnedCanvas() {
   if (!pinned) return;
@@ -327,7 +328,12 @@ function fitPinnedCanvas() {
   const s = Math.min(window.innerWidth / w, window.innerHeight / h);
   c.style.setProperty('transform', `scale(${s})`);
   // Re-fit when the device pixel ratio changes (browser zoom, monitor move).
-  matchMedia(`(resolution: ${dpr}dppx)`).addEventListener('change', fitPinnedCanvas, { once: true });
+  // Arm one listener per DPR value: fit() also runs on every resize, and
+  // re-arming there would accumulate a listener per resize event.
+  if (armedDpr !== dpr) {
+    armedDpr = dpr;
+    matchMedia(`(resolution: ${dpr}dppx)`).addEventListener('change', fitPinnedCanvas, { once: true });
+  }
 }
 
 function pinCanvas(width, height) {
