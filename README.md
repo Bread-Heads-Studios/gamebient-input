@@ -34,7 +34,21 @@ fn jump(input: Res<GameInput>) {
   - a **Gamepad API** poller with the standard mapping, so pads work in the browser without a parent page;
   - a **Presentation API** receiver for the TV cast path;
   - a **DOM touch overlay** (D-pad, A, B, Start, Select, Pause) shown on touch devices unless the host says it draws its own pad. Its taps are real user activation inside the game document, so audio unlocks.
-- **`StateEvents::<S>`** posts a `state` event to the host on every transition, and the plugin posts `ready` at startup. Write `HostEvent::Score(n)` etc. from your systems for the rest.
+- **`StateEvents::<S>`** posts a `state` event to the host on every transition, and the plugin posts `ready` at startup. Write `HostEvent::Started`, `HostEvent::GameOver`, `HostEvent::Score(n)` and `HostEvent::Paused(b)` from your systems for the rest.
+- **`HostCommand`** messages (`Pause`, `Resume`, `Mute(bool)`, `Hello`) arrive when a host sends `gx:set` / `gx:hello`; handle the ones that make sense for your game:
+
+```rust
+fn apply_host_commands(mut cmds: MessageReader<HostCommand>, mut paused: ResMut<Paused>) {
+    for c in cmds.read() {
+        match c {
+            HostCommand::Pause => paused.0 = true,
+            HostCommand::Resume => paused.0 = false,
+            HostCommand::Mute(m) => { /* GlobalVolume + AudioSinkPlayback::mute on live sinks */ }
+            HostCommand::Hello { .. } => {}
+        }
+    }
+}
+```
 
 ## Using it in a game
 

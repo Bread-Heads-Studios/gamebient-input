@@ -47,6 +47,7 @@
       <div id="c-ready">event: ready</div>
       <div id="c-state">event: state</div>
       <div id="c-playing">event: state = Playing</div>
+      <div id="c-paused">event: paused (after gx:set)</div>
     </div>
     <div id="log"></div>
   </aside>
@@ -96,6 +97,7 @@
     if (d.type === 'gx:event') {
       if (d.event === 'ready') $('c-ready').classList.add('ok');
       if (d.event === 'state') { $('c-state').classList.add('ok'); if (d.state === 'Playing') $('c-playing').classList.add('ok'); }
+      if (d.event === 'paused') $('c-paused').classList.add('ok');
     }
   });
 

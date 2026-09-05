@@ -24,6 +24,8 @@ pub enum HostEvent {
     GameOver,
     /// Score update (final or running).
     Score(u64),
+    /// Pause state changed (also in answer to a host `gx:set` pause).
+    Paused(bool),
     /// Anything else. `data` must already be valid JSON.
     Custom { name: String, data: String },
 }
@@ -92,6 +94,7 @@ pub fn encode_event(e: &HostEvent) -> String {
         HostEvent::Started => "\"event\":\"started\"".to_string(),
         HostEvent::GameOver => "\"event\":\"gameover\"".to_string(),
         HostEvent::Score(n) => format!("\"event\":\"score\",\"score\":{n}"),
+        HostEvent::Paused(p) => format!("\"event\":\"paused\",\"paused\":{p}"),
         HostEvent::Custom { name, data } => {
             format!(
                 "\"event\":\"custom\",\"name\":\"{}\",\"data\":{data}",
@@ -175,6 +178,10 @@ mod tests {
         assert_eq!(
             encode_event(&HostEvent::Score(1500)),
             r#"{"type":"gx:event","v":1,"event":"score","score":1500}"#
+        );
+        assert_eq!(
+            encode_event(&HostEvent::Paused(true)),
+            r#"{"type":"gx:event","v":1,"event":"paused","paused":true}"#
         );
         assert_eq!(
             encode_event(&HostEvent::Custom {

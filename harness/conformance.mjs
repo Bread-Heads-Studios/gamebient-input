@@ -124,6 +124,16 @@ try {
   results.playing = await reached();
   results.presses = presses;
 
+  // gx:set pause round-trip: the game should answer with paused events.
+  if (results.playing) {
+    const pausedEvents = () => evaluate(h, `[...document.querySelectorAll('#log div.in')].map(d=>d.textContent).filter(t=>t.includes('"event":"paused"')).map(t=>t.includes('"paused":true')).reverse()`);
+    await evaluate(h, "post({type:'gx:set',v:1,paused:true}); 1");
+    const pausedOn = await waitFor(h, `(${pausedEvents.toString()})().at(-1) === true`, 8000, 'paused event (true)');
+    await evaluate(h, "post({type:'gx:set',v:1,paused:false}); 1");
+    const pausedOff = await waitFor(h, `(${pausedEvents.toString()})().at(-1) === false`, 8000, 'paused event (false)');
+    results.pauseCommand = pausedOn && pausedOff;
+  }
+
   // --- Scenario B: touch overlay, game top-level with touch emulation ---
   const g = await newPage();
   await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }, g);
@@ -147,7 +157,7 @@ try {
   chrome.kill('SIGKILL');
   for (const s of servers) s.kill('SIGKILL');
 }
-const required = ['hello', 'ready', 'stateEvent', 'playing', 'overlay', 'overlayVisible', 'overlayPress', 'overlayHiddenByHost'];
+const required = ['hello', 'ready', 'stateEvent', 'playing', 'pauseCommand', 'overlay', 'overlayVisible', 'overlayPress', 'overlayHiddenByHost'];
 results.pass = !results.error && required.every((k) => results[k] === true)
   && results.transitionsBy.gxInput > 0 && results.transitionsBy.keyEvent > 0 && results.consoleErrors.length === 0;
 console.log(JSON.stringify(results, null, 2));

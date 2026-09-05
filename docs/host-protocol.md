@@ -29,6 +29,7 @@ Hosts must not assume the game is listening before its hello arrives: the game d
 { "type": "gx:event", "v": 1, "event": "started" }                   // a run began
 { "type": "gx:event", "v": 1, "event": "gameover" }                  // a run ended
 { "type": "gx:event", "v": 1, "event": "score", "score": 1500 }
+{ "type": "gx:event", "v": 1, "event": "paused", "paused": true }     // pause state changed
 { "type": "gx:event", "v": 1, "event": "custom", "name": "lap", "data": { "n": 2 } }
 ```
 
@@ -48,6 +49,8 @@ Events are untrusted input to the host. Never award anything server-side from a 
 
 { "type": "gx:set", "v": 1, "paused": true }   // also "muted": true|false
 ```
+
+`gx:set` is advisory: the game applies it if it makes sense in its current state (a game only pauses while playing) and reports the outcome with a `paused` event. A host that pauses a game while showing an overlay should resume it when the overlay goes away.
 
 `gx:input` is a **state**, not an event: send the full held set whenever it changes (and it is fine to send it every frame). The game latches any bit that turns on between two of its frames, so a press shorter than a frame still counts. Send `buttons: 0` on blur or when the host stops relaying so nothing stays held.
 
