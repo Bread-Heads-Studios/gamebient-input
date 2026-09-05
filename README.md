@@ -59,7 +59,7 @@ The plugin reads your `Window` and records a `CanvasPolicy`:
 
 `WindowResolution::with_scale_factor_override` never reduces the number of pixels rendered, on web or native. It only changes the logical size. Do not use it as a render scale.
 
-Your loader needs only `<div id="game-container"><canvas id="game"></canvas></div>`; the glue owns the sizing after `init()`.
+Your loader needs only `<div id="game-container"><canvas id="game"></canvas></div>`; the glue owns the sizing after `init()`. The canvas must sit inside a dedicated container element (the template's `#game-container`); a canvas directly under `<body>` is not centred.
 
 ## Using it in a game
 
@@ -68,7 +68,7 @@ Your loader needs only `<div id="game-container"><canvas id="game"></canvas></di
 gamebient-input = { git = "https://github.com/Bread-Heads-Studios/gamebient-input", tag = "v0.2.0" }
 ```
 
-The crate depends on `bevy` with `default-features = false` and only the features it needs (`bevy_state`, `keyboard`, `gamepad`, `std`); your game's own feature list drives everything else. On wasm it also needs `wasm-bindgen` at the exact version of your `wasm-bindgen-cli`.
+The crate depends on `bevy` with `default-features = false` and only the features it needs (`bevy_state`, `bevy_window`, `keyboard`, `gamepad`, `std`); your game's own feature list drives everything else. On wasm it also needs `wasm-bindgen` at the exact version of your `wasm-bindgen-cli`.
 
 Your `index.html` no longer needs a `message` listener or Presentation code. Keep the click-to-start gate; if a host may drive the game before the engine starts, expose your unlock as `window.__gxUnlock` so the host's first press can trigger it (see the template).
 
