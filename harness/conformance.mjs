@@ -17,7 +17,10 @@
 //      CHROME_PORT (9333), PLAYING_STATE ("Playing"), MAX_PRESSES (8),
 //      CHROME (path to the Chrome binary), PRESS_GAP_MS (3000),
 //      EXPECT_BACKBUFFER (unset; e.g. 1280x720 to assert the pinned
-//      backbuffer under DEVICE_SCALE_FACTOR, default 2).
+//      backbuffer under DEVICE_SCALE_FACTOR, default 2). This also asserts
+//      that the canvas was actually letterboxed to the expected rendered
+//      (CSS) box — a backbuffer that merely matches the HTML default
+//      (300x150, or 1280x720 before gxPinCanvas runs) no longer passes.
 // Exit code 0 when every check passes.
 import { spawn } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
@@ -177,11 +180,30 @@ try {
     await navigate(p, GAME_URL);
     await waitFor(p, "typeof window.__gxUnlock === 'function'", 60000, 'wasm compiled (dsf run)');
     await evaluate(p, "window.__gxUnlock(); 1");
-    await waitFor(p, "(document.getElementById('game')||{}).width > 0", 60000, 'engine surface');
+    // canvas.width > 0 is satisfied by the HTML default (300, or 1280 before
+    // gxPinCanvas runs) — it can't tell us the glue actually ran. Its CSS
+    // transform is only ever set by fitPinnedCanvas, so wait for that instead.
+    await waitFor(p, "(document.getElementById('game')||{}).style.transform !== ''", 60000, 'gxPinCanvas applied');
     await sleep(3000); // let any resize feedback settle
-    const bb = await evaluate(p, "(() => { const c = document.getElementById('game'); const r = c.getBoundingClientRect(); return { backbuffer: c.width + 'x' + c.height, dpr: window.devicePixelRatio, rendered: Math.round(r.width) + 'x' + Math.round(r.height) }; })()");
+    const [W, H] = EXPECT_BACKBUFFER.split('x').map(Number);
+    const bb = await evaluate(p, `(() => {
+      const c = document.getElementById('game');
+      const r = c.getBoundingClientRect();
+      const W = ${W}, H = ${H};
+      const w = Math.min(window.innerWidth, window.innerHeight * W / H);
+      const h = Math.min(window.innerHeight, window.innerWidth * H / W);
+      return {
+        backbuffer: c.width + 'x' + c.height,
+        dpr: window.devicePixelRatio,
+        rendered: Math.round(r.width) + 'x' + Math.round(r.height),
+        expectedRendered: Math.round(w) + 'x' + Math.round(h),
+      };
+    })()`);
     results.backbufferRun = bb;
-    results.backbuffer = bb.backbuffer === EXPECT_BACKBUFFER && bb.dpr === dsf;
+    const [rw, rh] = bb.rendered.split('x').map(Number);
+    const [ew, eh] = bb.expectedRendered.split('x').map(Number);
+    results.backbuffer = bb.backbuffer === EXPECT_BACKBUFFER && bb.dpr === dsf
+      && Math.abs(rw - ew) <= 1 && Math.abs(rh - eh) <= 1;
   }
   results.consoleErrors = consoleLines.filter((l) => /panicked|EXCEPTION|Failed to/.test(l));
 } catch (e) {
