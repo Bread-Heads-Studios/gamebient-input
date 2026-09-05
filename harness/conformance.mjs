@@ -15,7 +15,9 @@
 //   GAME_DIST=dist node /path/to/gamebient-input/harness/conformance.mjs
 // Env: GAME_DIST (default ./dist), GAME_PORT (8081), HARNESS_PORT (8082),
 //      CHROME_PORT (9333), PLAYING_STATE ("Playing"), MAX_PRESSES (8),
-//      CHROME (path to the Chrome binary), PRESS_GAP_MS (3000).
+//      CHROME (path to the Chrome binary), PRESS_GAP_MS (3000),
+//      EXPECT_BACKBUFFER (unset; e.g. 1280x720 to assert the pinned
+//      backbuffer under DEVICE_SCALE_FACTOR, default 2).
 // Exit code 0 when every check passes.
 import { spawn } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
@@ -43,11 +45,17 @@ const servers = [
   spawn('python3', ['-m', 'http.server', String(GAME_PORT), '--bind', '127.0.0.1', '--directory', GAME_DIST], { stdio: 'ignore' }),
   spawn('python3', ['-m', 'http.server', String(HARNESS_PORT), '--bind', 'localhost', '--directory', HARNESS_DIR], { stdio: 'ignore' }),
 ];
-const chrome = spawn(CHROME, [
-  '--headless=new', `--remote-debugging-port=${CHROME_PORT}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), 'gx-chrome-'))}`,
+const CHROME_BASE_ARGS = [
+  '--headless=new', `--remote-debugging-port=${CHROME_PORT}`,
   '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist',
-  '--autoplay-policy=no-user-gesture-required', '--no-first-run', '--no-default-browser-check', '--window-size=1280,800',
-], { stdio: 'ignore' });
+  '--autoplay-policy=no-user-gesture-required', '--no-first-run', '--no-default-browser-check',
+];
+function launchChrome(extraArgs) {
+  return spawn(CHROME, [
+    ...CHROME_BASE_ARGS, `--user-data-dir=${mkdtempSync(join(tmpdir(), 'gx-chrome-'))}`, ...extraArgs,
+  ], { stdio: 'ignore' });
+}
+let chrome = launchChrome(['--window-size=1280,800']);
 
 let ws, nextId = 1; const pending = new Map(); const consoleLines = [];
 async function connect() {
@@ -151,6 +159,30 @@ try {
     await sleep(500);
     results.overlayHiddenByHost = await evaluate(g, "document.getElementById('gx-pad').hidden === true");
   }
+  // --- Scenario C: pinned backbuffer under a REAL device scale factor ---
+  // EXPECT_BACKBUFFER=1280x720 asserts canvas.width/height once the engine
+  // runs, in a fresh Chrome launched with --force-device-scale-factor.
+  // CDP's Emulation.setDeviceMetricsOverride does not reach ResizeObserver's
+  // devicePixelContentBoxSize, so it would pass a loader that is broken on
+  // real phones; only the launch flag exercises the real path.
+  const EXPECT_BACKBUFFER = env('EXPECT_BACKBUFFER', '');
+  if (EXPECT_BACKBUFFER) {
+    const dsf = Number(env('DEVICE_SCALE_FACTOR', 2));
+    chrome.kill('SIGKILL');
+    await sleep(500);
+    chrome = launchChrome([`--force-device-scale-factor=${dsf}`, '--window-size=1600,1000']);
+    await sleep(500);
+    await connect();
+    const p = await newPage();
+    await navigate(p, GAME_URL);
+    await waitFor(p, "typeof window.__gxUnlock === 'function'", 60000, 'wasm compiled (dsf run)');
+    await evaluate(p, "window.__gxUnlock(); 1");
+    await waitFor(p, "(document.getElementById('game')||{}).width > 0", 60000, 'engine surface');
+    await sleep(3000); // let any resize feedback settle
+    const bb = await evaluate(p, "(() => { const c = document.getElementById('game'); const r = c.getBoundingClientRect(); return { backbuffer: c.width + 'x' + c.height, dpr: window.devicePixelRatio, rendered: Math.round(r.width) + 'x' + Math.round(r.height) }; })()");
+    results.backbufferRun = bb;
+    results.backbuffer = bb.backbuffer === EXPECT_BACKBUFFER && bb.dpr === dsf;
+  }
   results.consoleErrors = consoleLines.filter((l) => /panicked|EXCEPTION|Failed to/.test(l));
 } catch (e) {
   results.error = String(e);
@@ -159,6 +191,7 @@ try {
   for (const s of servers) s.kill('SIGKILL');
 }
 const required = ['hello', 'ready', 'stateEvent', 'playing', 'pauseCommand', 'overlay', 'overlayVisible', 'overlayPress', 'overlayHiddenByHost'];
+if (process.env.EXPECT_BACKBUFFER) required.push('backbuffer');
 results.pass = !results.error && required.every((k) => results[k] === true)
   && results.transitionsBy.gxInput > 0 && results.transitionsBy.keyEvent > 0 && results.consoleErrors.length === 0;
 console.log(JSON.stringify(results, null, 2));

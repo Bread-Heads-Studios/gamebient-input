@@ -37,6 +37,8 @@ Hosts must not assume the game is listening before its hello arrives: the game d
 
 Events are untrusted input to the host. Never award anything server-side from a client-posted `score` without your own verification.
 
+`aspect` is informational. A game with touch controls letterboxes itself inside whatever frame it is given, and its pad lives in those bars, so hosts must keep the frame full-viewport in in-frame mode rather than shrinking it to `aspect`.
+
 ## Host → game
 
 ```jsonc

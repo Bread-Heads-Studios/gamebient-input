@@ -29,6 +29,7 @@
 //! ```
 
 pub mod buttons;
+pub mod canvas;
 pub mod host;
 pub mod input;
 #[cfg(target_arch = "wasm32")]
@@ -37,13 +38,14 @@ pub mod web;
 use bevy::prelude::*;
 
 pub use buttons::{Buttons, Edges};
+pub use canvas::CanvasPolicy;
 pub use host::{GxConfig, HostCommand, HostEvent, StateEvents};
 pub use input::{GameInput, VirtualInput};
 
 pub mod prelude {
     pub use crate::{
-        Buttons, GameInput, GxConfig, GxInputPlugin, HostCommand, HostEvent, StateEvents,
-        VirtualInput,
+        Buttons, CanvasPolicy, GameInput, GxConfig, GxInputPlugin, HostCommand, HostEvent,
+        StateEvents, VirtualInput,
     };
 }
 
@@ -68,6 +70,19 @@ impl GxInputPlugin {
 
 impl Plugin for GxInputPlugin {
     fn build(&self, app: &mut App) {
+        // Derive the canvas policy from the window the game configured (added
+        // by DefaultPlugins, so this plugin must come after them). Without a
+        // primary window (tests, headless tools) there is nothing to pin.
+        let policy = {
+            let mut primary = app
+                .world_mut()
+                .query_filtered::<&Window, With<bevy::window::PrimaryWindow>>();
+            primary
+                .single(app.world())
+                .map(CanvasPolicy::from_window)
+                .unwrap_or(CanvasPolicy::Fit)
+        };
+        app.insert_resource(policy);
         app.insert_resource(self.config.clone())
             .init_resource::<GameInput>()
             .init_resource::<VirtualInput>()
