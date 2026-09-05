@@ -299,6 +299,52 @@ function updateOverlayVisibility() {
   if (state.hostHasControls) state.touch = 0;
 }
 
+// --- Canvas policy -----------------------------------------------------------
+// Pinned backbuffer. winit sizes Bevy's render surface from the canvas's
+// DEVICE-pixel box (ResizeObserver devicePixelContentBoxSize), so keeping the
+// surface at width×height on every display means the CSS layout box must be
+// width/devicePixelRatio × height/devicePixelRatio. The canvas is then scaled
+// visually with a transform (invisible to the observer) to the largest
+// aspect-preserving fit in the viewport, i.e. letterboxed. Fit games never
+// call gxPinCanvas and are left alone.
+let pinned = null; // { width, height } in device pixels
+
+function fitPinnedCanvas() {
+  if (!pinned) return;
+  const c = document.getElementById(CANVAS_ID);
+  if (!c) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = pinned.width / dpr;
+  const h = pinned.height / dpr;
+  // 'important' beats any stylesheet rule a loader may still carry.
+  c.style.setProperty('width', `${w}px`, 'important');
+  c.style.setProperty('height', `${h}px`, 'important');
+  // A flex item's default flex-shrink would squeeze the box on narrow
+  // viewports; the observer would then report the squeezed size.
+  c.style.setProperty('flex', 'none');
+  c.style.setProperty('display', 'block');
+  c.style.setProperty('transform-origin', 'center center');
+  const s = Math.min(window.innerWidth / w, window.innerHeight / h);
+  c.style.setProperty('transform', `scale(${s})`);
+  // Re-fit when the device pixel ratio changes (browser zoom, monitor move).
+  matchMedia(`(resolution: ${dpr}dppx)`).addEventListener('change', fitPinnedCanvas, { once: true });
+}
+
+function pinCanvas(width, height) {
+  pinned = { width, height };
+  const c = document.getElementById(CANVAS_ID);
+  const parent = c && c.parentElement;
+  if (parent && parent !== document.body) {
+    // Centre the scaled canvas in the viewport so the transform letterboxes.
+    Object.assign(parent.style, {
+      position: 'fixed', inset: '0', display: 'flex',
+      alignItems: 'center', justifyContent: 'center',
+    });
+  }
+  window.addEventListener('resize', fitPinnedCanvas);
+  fitPinnedCanvas();
+}
+
 // --- Exports (imported by src/web.rs) --------------------------------------------
 
 export function gxInit(helloJson, extraOrigins) {
@@ -362,4 +408,10 @@ export function gxTakeCommands() {
 
 export function gxHasTouch() {
   return hasTouch();
+}
+
+// Called once at startup by the crate when the game's Window is pinned
+// (fit_canvas_to_parent: false); `width`/`height` are the physical size.
+export function gxPinCanvas(width, height) {
+  pinCanvas(width, height);
 }

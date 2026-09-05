@@ -12,6 +12,7 @@ use bevy::prelude::*;
 use wasm_bindgen::prelude::*;
 
 use crate::buttons::Buttons;
+use crate::canvas::CanvasPolicy;
 use crate::host::{GxConfig, HostCommand, HostEvent, encode_event, encode_hello};
 use crate::input::{VirtualInput, collect_input};
 
@@ -50,6 +51,12 @@ extern "C" {
     /// Whether the device has a touch screen (so hello can say so).
     #[wasm_bindgen(js_name = gxHasTouch)]
     fn gx_has_touch() -> bool;
+
+    /// Pins the canvas layout box to `width/DPR × height/DPR` CSS px and
+    /// letterboxes it with a transform, so the backbuffer stays `width ×
+    /// height` on every display. See `canvas.rs`.
+    #[wasm_bindgen(js_name = gxPinCanvas)]
+    fn gx_pin_canvas(width: u32, height: u32);
 }
 
 /// Registers the web glue systems. Added by `GxInputPlugin` on wasm32.
@@ -68,9 +75,12 @@ impl Plugin for WebPlugin {
     }
 }
 
-fn init_web(config: Res<GxConfig>) {
+fn init_web(config: Res<GxConfig>, policy: Res<CanvasPolicy>) {
     let hello = encode_hello(&config, gx_has_touch());
     gx_init(&hello, &config.extra_host_origins.join(","));
+    if let CanvasPolicy::Pinned { width, height } = *policy {
+        gx_pin_canvas(width, height);
+    }
 }
 
 fn poll_virtual(mut virt: ResMut<VirtualInput>) {
