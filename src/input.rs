@@ -192,6 +192,97 @@ pub fn collect_input(
     *input = derive(e, analog);
 }
 
+/// Input folded since the last fixed tick. `held` / `axis` are the latest
+/// values; `latched` ORs every press edge so a sub-tick tap still counts.
+/// Written by [`accumulate_input`] every frame, or by a replay feeder.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
+pub struct InputAccumulator {
+    pub held: Buttons,
+    pub latched: Buttons,
+    pub axis: Vec2,
+}
+
+/// The sim's input for the current fixed tick. Gameplay systems in
+/// `FixedUpdate` read this instead of [`GameInput`]; `GameInput` stays the
+/// per-frame view for menus and overlays.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
+pub struct TickInput {
+    pub input: GameInput,
+    /// The quantized analog stick alone (no D-pad folded in): what the
+    /// replay stores and the feeder writes back.
+    pub axis: (i8, i8),
+}
+
+impl core::ops::Deref for TickInput {
+    type Target = GameInput;
+    fn deref(&self) -> &GameInput {
+        &self.input
+    }
+}
+
+/// Previous tick's held set.
+#[derive(Resource, Debug, Default)]
+pub struct TickFrame {
+    prev: Buttons,
+}
+
+/// Ordering hooks in `FixedPreUpdate`: a replay feeder runs in `Feed`,
+/// [`collect_tick_input`] in `Collect`.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TickInputSet {
+    Feed,
+    Collect,
+}
+
+/// Clamps to -1..1 and maps to -127..127.
+pub fn quantize_axis(v: Vec2) -> (i8, i8) {
+    let q = |x: f32| (x.clamp(-1.0, 1.0) * 127.0).round() as i8;
+    (q(v.x), q(v.y))
+}
+
+pub fn dequantize_axis(x: i8, y: i8) -> Vec2 {
+    Vec2::new(f32::from(x) / 127.0, f32::from(y) / 127.0)
+}
+
+/// `PreUpdate`, after Bevy's input systems: folds keyboard, gamepads and the
+/// virtual source into [`InputAccumulator`]. Does not consume the virtual
+/// latch, so [`collect_input`] still sees it for the per-frame view.
+pub fn accumulate_input(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    gamepads: Query<&Gamepad>,
+    virt: Res<VirtualInput>,
+    mut acc: ResMut<InputAccumulator>,
+) {
+    let mut held = map_keys(|k| keyboard.pressed(k));
+    let mut latched = map_keys(|k| keyboard.just_pressed(k));
+    let mut analog = Vec2::ZERO;
+    for pad in &gamepads {
+        held |= map_gamepad(|b| pad.pressed(b));
+        latched |= map_gamepad(|b| pad.just_pressed(b));
+        analog += apply_deadzone(pad.left_stick());
+    }
+    held |= virt.held;
+    latched |= virt.latched;
+    analog += virt.axis;
+    acc.held = held;
+    acc.latched |= latched;
+    acc.axis = analog;
+}
+
+/// `FixedPreUpdate`: consumes the accumulator into [`TickInput`] with the
+/// axis quantized, so what the sim sees is exactly what a replay carries.
+pub fn collect_tick_input(
+    mut acc: ResMut<InputAccumulator>,
+    mut frame: ResMut<TickFrame>,
+    mut tick: ResMut<TickInput>,
+) {
+    let (qx, qy) = quantize_axis(acc.axis);
+    let e = edges(frame.prev, acc.held, core::mem::take(&mut acc.latched));
+    frame.prev = e.held;
+    tick.input = derive(e, dequantize_axis(qx, qy));
+    tick.axis = (qx, qy);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,5 +414,74 @@ mod tests {
         app.update();
         let g = *app.world().resource::<GameInput>();
         assert!(g.primary_held && !g.primary_just_pressed);
+    }
+
+    #[test]
+    fn axis_quantization_is_idempotent_and_clamped() {
+        for &(x, y) in &[(0.0, 0.0), (1.0, -1.0), (0.5, 0.25), (1.7, -3.0)] {
+            let (qx, qy) = quantize_axis(Vec2::new(x, y));
+            let back = dequantize_axis(qx, qy);
+            assert_eq!(quantize_axis(back), (qx, qy));
+            assert!(back.x.abs() <= 1.0 && back.y.abs() <= 1.0);
+        }
+        assert_eq!(quantize_axis(Vec2::new(1.0, -1.0)), (127, -127));
+    }
+
+    #[test]
+    fn tick_input_latches_a_sub_tick_press_and_consumes_it() {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<VirtualInput>()
+            .init_resource::<InputAccumulator>()
+            .init_resource::<TickFrame>()
+            .init_resource::<TickInput>()
+            .add_systems(PreUpdate, accumulate_input)
+            .add_systems(
+                FixedPreUpdate,
+                collect_tick_input.in_set(TickInputSet::Collect),
+            );
+
+        // A tap arrives between ticks: latched but never held.
+        app.world_mut().resource_mut::<VirtualInput>().latched = Buttons::A;
+        app.world_mut().run_schedule(PreUpdate);
+        let acc = *app.world().resource::<InputAccumulator>();
+        assert_eq!(acc.latched, Buttons::A);
+
+        app.world_mut().run_schedule(FixedPreUpdate);
+        let t = app.world().resource::<TickInput>();
+        assert!(t.primary_just_pressed);
+        assert!(!t.primary_held);
+        assert_eq!(
+            app.world().resource::<InputAccumulator>().latched,
+            Buttons::NONE
+        );
+
+        // The next tick with nothing new sees no edge.
+        app.world_mut().run_schedule(FixedPreUpdate);
+        assert!(!app.world().resource::<TickInput>().primary_just_pressed);
+    }
+
+    #[test]
+    fn tick_input_axis_is_the_quantized_axis() {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<VirtualInput>()
+            .init_resource::<InputAccumulator>()
+            .init_resource::<TickFrame>()
+            .init_resource::<TickInput>()
+            .add_systems(PreUpdate, accumulate_input)
+            .add_systems(
+                FixedPreUpdate,
+                collect_tick_input.in_set(TickInputSet::Collect),
+            );
+        app.world_mut().resource_mut::<VirtualInput>().axis = Vec2::new(0.333, -0.5);
+        app.world_mut().run_schedule(PreUpdate);
+        app.world_mut().run_schedule(FixedPreUpdate);
+        let (qx, qy) = quantize_axis(Vec2::new(0.333, -0.5));
+        let expect = dequantize_axis(qx, qy);
+        let t = app.world().resource::<TickInput>();
+        assert_eq!(t.axis, (qx, qy));
+        assert_eq!(t.move_x, expect.x);
+        assert_eq!(t.move_y, expect.y);
     }
 }

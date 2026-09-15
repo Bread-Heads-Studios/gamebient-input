@@ -55,6 +55,11 @@ pub struct GxConfig {
     /// on top of the built-in pattern (production site, Vercel previews,
     /// localhost).
     pub extra_host_origins: Vec<String>,
+    /// Also maintain the fixed-tick input path (`TickInput`) for games whose
+    /// sim runs in `FixedUpdate`. Off by default.
+    pub tick_input: bool,
+    /// No window, no web glue: for headless verifiers and tests.
+    pub headless: bool,
 }
 
 impl Default for GxConfig {
@@ -63,6 +68,8 @@ impl Default for GxConfig {
             name: "Gamebient Game".into(),
             aspect: "16:9".into(),
             extra_host_origins: Vec::new(),
+            tick_input: false,
+            headless: false,
         }
     }
 }

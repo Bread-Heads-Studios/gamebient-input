@@ -40,12 +40,12 @@ use bevy::prelude::*;
 pub use buttons::{Buttons, Edges};
 pub use canvas::CanvasPolicy;
 pub use host::{GxConfig, HostCommand, HostEvent, StateEvents};
-pub use input::{GameInput, VirtualInput};
+pub use input::{GameInput, InputAccumulator, TickInput, TickInputSet, VirtualInput};
 
 pub mod prelude {
     pub use crate::{
         Buttons, CanvasPolicy, GameInput, GxConfig, GxInputPlugin, HostCommand, HostEvent,
-        StateEvents, VirtualInput,
+        StateEvents, TickInput, VirtualInput,
     };
 }
 
@@ -106,6 +106,23 @@ impl Plugin for GxInputPlugin {
                 input::collect_input.after(bevy::input::InputSystems),
             )
             .add_plugins(host::HostPlugin);
+        if self.config.tick_input {
+            app.init_resource::<input::InputAccumulator>()
+                .init_resource::<input::TickFrame>()
+                .init_resource::<input::TickInput>()
+                .configure_sets(
+                    FixedPreUpdate,
+                    input::TickInputSet::Feed.before(input::TickInputSet::Collect),
+                )
+                .add_systems(
+                    PreUpdate,
+                    input::accumulate_input.after(bevy::input::InputSystems),
+                )
+                .add_systems(
+                    FixedPreUpdate,
+                    input::collect_tick_input.in_set(input::TickInputSet::Collect),
+                );
+        }
         #[cfg(target_arch = "wasm32")]
         app.add_plugins(web::WebPlugin);
     }
