@@ -66,6 +66,19 @@ impl GxInputPlugin {
             },
         }
     }
+
+    /// Headless: no window, no web glue, fixed-tick input on. For the
+    /// replay verifier and headless tests.
+    pub fn headless(name: impl Into<String>) -> Self {
+        Self {
+            config: GxConfig {
+                name: name.into(),
+                tick_input: true,
+                headless: true,
+                ..Default::default()
+            },
+        }
+    }
 }
 
 impl Plugin for GxInputPlugin {
@@ -77,20 +90,24 @@ impl Plugin for GxInputPlugin {
         // Fit; on wasm, Startup's init_web re-derives from the primary
         // window (which is guaranteed to exist by then) and is the source
         // of truth, updating this resource in place.
-        let policy = {
-            let mut primary = app
-                .world_mut()
-                .query_filtered::<&Window, With<bevy::window::PrimaryWindow>>();
-            primary.single(app.world()).map(CanvasPolicy::from_window)
-        };
-        let policy = match policy {
-            Ok(policy) => policy,
-            Err(_) => {
-                log::warn!(
-                    "gamebient-input: no PrimaryWindow at plugin build; add GxInputPlugin \
-                     after DefaultPlugins — canvas policy defaults to Fit until Startup"
-                );
-                CanvasPolicy::Fit
+        let policy = if self.config.headless {
+            CanvasPolicy::Fit
+        } else {
+            let policy = {
+                let mut primary = app
+                    .world_mut()
+                    .query_filtered::<&Window, With<bevy::window::PrimaryWindow>>();
+                primary.single(app.world()).map(CanvasPolicy::from_window)
+            };
+            match policy {
+                Ok(policy) => policy,
+                Err(_) => {
+                    log::warn!(
+                        "gamebient-input: no PrimaryWindow at plugin build; add GxInputPlugin \
+                         after DefaultPlugins — canvas policy defaults to Fit until Startup"
+                    );
+                    CanvasPolicy::Fit
+                }
             }
         };
         app.insert_resource(policy);
@@ -126,6 +143,8 @@ impl Plugin for GxInputPlugin {
                 );
         }
         #[cfg(target_arch = "wasm32")]
-        app.add_plugins(web::WebPlugin);
+        if !self.config.headless {
+            app.add_plugins(web::WebPlugin);
+        }
     }
 }

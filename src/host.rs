@@ -28,6 +28,9 @@ pub enum HostEvent {
     Paused(bool),
     /// Anything else. `data` must already be valid JSON.
     Custom { name: String, data: String },
+    /// The sealed replay of the run that just ended (`GXR1` bytes). Posted
+    /// base64-encoded as `{"event":"run","replay":"..."}`.
+    Run(Vec<u8>),
 }
 
 /// Host → game. Emitted by the web glue when a `gx:hello` / `gx:set`
@@ -42,6 +45,8 @@ pub enum HostCommand {
     Pause,
     Resume,
     Mute(bool),
+    /// A server-issued run seed (32 bytes) for the next run.
+    Seed([u8; 32]),
 }
 
 /// Static description of this game for the `gx:hello` handshake.
@@ -108,6 +113,9 @@ pub fn encode_event(e: &HostEvent) -> String {
                 json_escape(name)
             )
         }
+        HostEvent::Run(bytes) => {
+            format!("\"event\":\"run\",\"replay\":\"{}\"", base64_encode(bytes))
+        }
     };
     format!("{{\"type\":\"gx:event\",\"v\":{PROTOCOL_VERSION},{body}}}")
 }
@@ -119,6 +127,68 @@ pub fn encode_hello(config: &GxConfig, has_touch_controls: bool) -> String {
         json_escape(&config.name),
         json_escape(&config.aspect)
     )
+}
+
+/// Standard base64 with padding (RFC 4648), no dependency.
+pub fn base64_encode(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        out.push(T[(n >> 18) as usize & 63] as char);
+        out.push(T[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 {
+            T[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            T[n as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+/// 64 hex chars → 32 bytes.
+pub fn parse_seed_hex(s: &str) -> Option<[u8; 32]> {
+    if s.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (i, pair) in s.as_bytes().chunks(2).enumerate() {
+        let hi = (pair[0] as char).to_digit(16)?;
+        let lo = (pair[1] as char).to_digit(16)?;
+        out[i] = (hi * 16 + lo) as u8;
+    }
+    Some(out)
+}
+
+/// Decodes the short command strings the JS side queues:
+/// `hello:1|0`, `pause`, `resume`, `mute:1|0`, `seed:<64 hex>`.
+pub fn parse_command(s: &str) -> Option<HostCommand> {
+    if let Some(hex) = s.strip_prefix("seed:") {
+        return parse_seed_hex(hex).map(HostCommand::Seed);
+    }
+    match s {
+        "pause" => Some(HostCommand::Pause),
+        "resume" => Some(HostCommand::Resume),
+        "mute:1" => Some(HostCommand::Mute(true)),
+        "mute:0" => Some(HostCommand::Mute(false)),
+        "hello:1" => Some(HostCommand::Hello {
+            host_has_controls: true,
+        }),
+        "hello:0" => Some(HostCommand::Hello {
+            host_has_controls: false,
+        }),
+        _ => None,
+    }
 }
 
 /// Registers the protocol messages and posts `Ready` at startup.
@@ -244,5 +314,42 @@ mod tests {
             .set(S::Playing);
         app.update();
         assert_eq!(drain(&mut app), vec![HostEvent::State("Playing".into())]);
+    }
+
+    #[test]
+    fn base64_matches_rfc4648() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+    }
+
+    #[test]
+    fn encodes_run_event_as_base64() {
+        assert_eq!(
+            encode_event(&HostEvent::Run(b"foo".to_vec())),
+            r#"{"type":"gx:event","v":1,"event":"run","replay":"Zm9v"}"#
+        );
+    }
+
+    #[test]
+    fn parses_seed_hex() {
+        let hex = "00".repeat(31) + "ff";
+        let seed = parse_seed_hex(&hex).unwrap();
+        assert_eq!(seed[31], 0xff);
+        assert_eq!(seed[0], 0);
+        assert!(parse_seed_hex("abc").is_none());
+        assert!(parse_seed_hex(&"zz".repeat(32)).is_none());
+    }
+
+    #[test]
+    fn parses_seed_command() {
+        let hex = "ab".repeat(32);
+        assert_eq!(
+            parse_command(&format!("seed:{hex}")),
+            Some(HostCommand::Seed([0xab; 32]))
+        );
+        assert_eq!(parse_command("seed:nope"), None);
     }
 }
