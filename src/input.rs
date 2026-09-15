@@ -484,4 +484,36 @@ mod tests {
         assert_eq!(t.move_x, expect.x);
         assert_eq!(t.move_y, expect.y);
     }
+
+    #[test]
+    fn tick_path_does_not_steal_the_virtual_latch_from_the_per_frame_path() {
+        // Mirrors the system ordering GxInputPlugin::build registers in
+        // src/lib.rs: accumulate_input must run before collect_input, since
+        // collect_input destructively takes VirtualInput.latched.
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<VirtualInput>()
+            .init_resource::<InputFrame>()
+            .init_resource::<GameInput>()
+            .init_resource::<InputAccumulator>()
+            .init_resource::<TickFrame>()
+            .init_resource::<TickInput>()
+            .add_systems(
+                PreUpdate,
+                (accumulate_input, collect_input.after(accumulate_input)),
+            )
+            .add_systems(
+                FixedPreUpdate,
+                collect_tick_input.in_set(TickInputSet::Collect),
+            );
+
+        // A sub-tick tap arrives from the touch overlay / host relay.
+        app.world_mut().resource_mut::<VirtualInput>().latched = Buttons::A;
+        app.world_mut().run_schedule(PreUpdate);
+        app.world_mut().run_schedule(FixedPreUpdate);
+
+        // Both the fixed-tick path and the per-frame path saw the tap.
+        assert!(app.world().resource::<TickInput>().primary_just_pressed);
+        assert!(app.world().resource::<GameInput>().primary_just_pressed);
+    }
 }

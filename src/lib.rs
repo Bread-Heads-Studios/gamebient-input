@@ -116,7 +116,9 @@ impl Plugin for GxInputPlugin {
                 )
                 .add_systems(
                     PreUpdate,
-                    input::accumulate_input.after(bevy::input::InputSystems),
+                    input::accumulate_input
+                        .after(bevy::input::InputSystems)
+                        .before(input::collect_input),
                 )
                 .add_systems(
                     FixedPreUpdate,
