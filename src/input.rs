@@ -192,6 +192,121 @@ pub fn collect_input(
     *input = derive(e, analog);
 }
 
+/// Input folded since the last fixed tick. `held` / `axis` are the latest
+/// values; `latched` ORs every press edge so a sub-tick tap still counts.
+/// Written by [`accumulate_input`] every frame, or by a replay feeder.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
+pub struct InputAccumulator {
+    pub held: Buttons,
+    pub latched: Buttons,
+    pub axis: Vec2,
+}
+
+/// The sim's input for the current fixed tick. Gameplay systems in
+/// `FixedUpdate` read this instead of [`GameInput`]; `GameInput` stays the
+/// per-frame view for menus and overlays.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
+pub struct TickInput {
+    pub input: GameInput,
+    /// The quantized analog stick alone (no D-pad folded in): what the
+    /// replay stores and the feeder writes back.
+    pub axis: (i8, i8),
+}
+
+impl core::ops::Deref for TickInput {
+    type Target = GameInput;
+    fn deref(&self) -> &GameInput {
+        &self.input
+    }
+}
+
+/// Previous tick's held set.
+#[derive(Resource, Debug, Default)]
+pub struct TickFrame {
+    prev: Buttons,
+}
+
+impl TickFrame {
+    /// The held set [`collect_tick_input`] will derive the next tick's press
+    /// and release edges against.
+    ///
+    /// A game that skips sim ticks (a pause, a cutscene) should remember this
+    /// value on the last tick it actually simulated, and restore it with
+    /// [`TickFrame::set_prev`] on every skipped tick. Without that, the first
+    /// tick after the skip derives its edges against input the skipped ticks
+    /// left behind — input a replay of the run never saw, because only
+    /// simulated ticks are recorded — and the live run and its replay
+    /// disagree about `just_pressed` / `just_released`.
+    #[inline]
+    pub fn prev(&self) -> Buttons {
+        self.prev
+    }
+
+    /// Overwrites the held set the next tick's edges are derived against.
+    /// See [`TickFrame::prev`] for why a game that skips sim ticks needs it.
+    #[inline]
+    pub fn set_prev(&mut self, prev: Buttons) {
+        self.prev = prev;
+    }
+}
+
+/// Ordering hooks in `FixedPreUpdate`: a replay feeder runs in `Feed`,
+/// [`collect_tick_input`] in `Collect`.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TickInputSet {
+    Feed,
+    Collect,
+}
+
+/// Clamps to -1..1 and maps to -127..127.
+pub fn quantize_axis(v: Vec2) -> (i8, i8) {
+    let q = |x: f32| (x.clamp(-1.0, 1.0) * 127.0).round() as i8;
+    (q(v.x), q(v.y))
+}
+
+pub fn dequantize_axis(x: i8, y: i8) -> Vec2 {
+    Vec2::new(f32::from(x) / 127.0, f32::from(y) / 127.0)
+}
+
+/// `PreUpdate`, after Bevy's input systems: folds keyboard, gamepads and the
+/// virtual source into [`InputAccumulator`]. Does not consume the virtual
+/// latch, so [`collect_input`] still sees it for the per-frame view.
+pub fn accumulate_input(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    gamepads: Query<&Gamepad>,
+    virt: Res<VirtualInput>,
+    mut acc: ResMut<InputAccumulator>,
+) {
+    let mut held = map_keys(|k| keyboard.pressed(k));
+    let mut latched = map_keys(|k| keyboard.just_pressed(k));
+    let mut analog = Vec2::ZERO;
+    for pad in &gamepads {
+        held |= map_gamepad(|b| pad.pressed(b));
+        latched |= map_gamepad(|b| pad.just_pressed(b));
+        analog += apply_deadzone(pad.left_stick());
+    }
+    held |= virt.held;
+    latched |= virt.latched;
+    analog += virt.axis;
+    acc.held = held;
+    acc.latched |= latched;
+    acc.axis = analog;
+}
+
+/// `FixedPreUpdate`: consumes the accumulator into [`TickInput`] with the
+/// axis quantized, so what the sim sees is exactly what a replay carries.
+pub fn collect_tick_input(
+    mut acc: ResMut<InputAccumulator>,
+    mut frame: ResMut<TickFrame>,
+    mut tick: ResMut<TickInput>,
+) {
+    let (qx, qy) = quantize_axis(acc.axis);
+    let e = edges(frame.prev, acc.held, core::mem::take(&mut acc.latched));
+    frame.prev = e.held;
+    tick.input = derive(e, dequantize_axis(qx, qy));
+    tick.axis = (qx, qy);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,5 +438,157 @@ mod tests {
         app.update();
         let g = *app.world().resource::<GameInput>();
         assert!(g.primary_held && !g.primary_just_pressed);
+    }
+
+    #[test]
+    fn axis_quantization_is_idempotent_and_clamped() {
+        for &(x, y) in &[(0.0, 0.0), (1.0, -1.0), (0.5, 0.25), (1.7, -3.0)] {
+            let (qx, qy) = quantize_axis(Vec2::new(x, y));
+            let back = dequantize_axis(qx, qy);
+            assert_eq!(quantize_axis(back), (qx, qy));
+            assert!(back.x.abs() <= 1.0 && back.y.abs() <= 1.0);
+        }
+        assert_eq!(quantize_axis(Vec2::new(1.0, -1.0)), (127, -127));
+    }
+
+    #[test]
+    fn tick_input_latches_a_sub_tick_press_and_consumes_it() {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<VirtualInput>()
+            .init_resource::<InputAccumulator>()
+            .init_resource::<TickFrame>()
+            .init_resource::<TickInput>()
+            .add_systems(PreUpdate, accumulate_input)
+            .add_systems(
+                FixedPreUpdate,
+                collect_tick_input.in_set(TickInputSet::Collect),
+            );
+
+        // A tap arrives between ticks: latched but never held.
+        app.world_mut().resource_mut::<VirtualInput>().latched = Buttons::A;
+        app.world_mut().run_schedule(PreUpdate);
+        let acc = *app.world().resource::<InputAccumulator>();
+        assert_eq!(acc.latched, Buttons::A);
+
+        app.world_mut().run_schedule(FixedPreUpdate);
+        let t = app.world().resource::<TickInput>();
+        assert!(t.primary_just_pressed);
+        assert!(!t.primary_held);
+        assert_eq!(
+            app.world().resource::<InputAccumulator>().latched,
+            Buttons::NONE
+        );
+
+        // The next tick with nothing new sees no edge.
+        app.world_mut().run_schedule(FixedPreUpdate);
+        assert!(!app.world().resource::<TickInput>().primary_just_pressed);
+    }
+
+    #[test]
+    fn tick_input_axis_is_the_quantized_axis() {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<VirtualInput>()
+            .init_resource::<InputAccumulator>()
+            .init_resource::<TickFrame>()
+            .init_resource::<TickInput>()
+            .add_systems(PreUpdate, accumulate_input)
+            .add_systems(
+                FixedPreUpdate,
+                collect_tick_input.in_set(TickInputSet::Collect),
+            );
+        app.world_mut().resource_mut::<VirtualInput>().axis = Vec2::new(0.333, -0.5);
+        app.world_mut().run_schedule(PreUpdate);
+        app.world_mut().run_schedule(FixedPreUpdate);
+        let (qx, qy) = quantize_axis(Vec2::new(0.333, -0.5));
+        let expect = dequantize_axis(qx, qy);
+        let t = app.world().resource::<TickInput>();
+        assert_eq!(t.axis, (qx, qy));
+        assert_eq!(t.move_x, expect.x);
+        assert_eq!(t.move_y, expect.y);
+    }
+
+    #[test]
+    fn tick_path_does_not_steal_the_virtual_latch_from_the_per_frame_path() {
+        // Mirrors the system ordering GxInputPlugin::build registers in
+        // src/lib.rs: accumulate_input must run before collect_input, since
+        // collect_input destructively takes VirtualInput.latched.
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<VirtualInput>()
+            .init_resource::<InputFrame>()
+            .init_resource::<GameInput>()
+            .init_resource::<InputAccumulator>()
+            .init_resource::<TickFrame>()
+            .init_resource::<TickInput>()
+            .add_systems(
+                PreUpdate,
+                (accumulate_input, collect_input.after(accumulate_input)),
+            )
+            .add_systems(
+                FixedPreUpdate,
+                collect_tick_input.in_set(TickInputSet::Collect),
+            );
+
+        // A sub-tick tap arrives from the touch overlay / host relay.
+        app.world_mut().resource_mut::<VirtualInput>().latched = Buttons::A;
+        app.world_mut().run_schedule(PreUpdate);
+        app.world_mut().run_schedule(FixedPreUpdate);
+
+        // Both the fixed-tick path and the per-frame path saw the tap.
+        assert!(app.world().resource::<TickInput>().primary_just_pressed);
+        assert!(app.world().resource::<GameInput>().primary_just_pressed);
+    }
+
+    #[test]
+    fn tick_frame_prev_reports_the_last_collected_held_set() {
+        let mut app = App::new();
+        app.init_resource::<InputAccumulator>()
+            .init_resource::<TickFrame>()
+            .init_resource::<TickInput>()
+            .add_systems(
+                FixedPreUpdate,
+                collect_tick_input.in_set(TickInputSet::Collect),
+            );
+        assert_eq!(app.world().resource::<TickFrame>().prev(), Buttons::NONE);
+        app.world_mut().resource_mut::<InputAccumulator>().held = Buttons::RIGHT;
+        app.world_mut().run_schedule(FixedPreUpdate);
+        assert_eq!(app.world().resource::<TickFrame>().prev(), Buttons::RIGHT);
+    }
+
+    #[test]
+    fn set_prev_is_what_the_next_tick_derives_its_edges_against() {
+        // A game that skipped sim ticks (a pause) restores `prev` to the last
+        // tick it actually simulated, so the tick that resumes reproduces the
+        // same press edge a replay of the recorded ticks would.
+        let mut app = App::new();
+        app.init_resource::<InputAccumulator>()
+            .init_resource::<TickFrame>()
+            .init_resource::<TickInput>()
+            .add_systems(
+                FixedPreUpdate,
+                collect_tick_input.in_set(TickInputSet::Collect),
+            );
+
+        // Tick 1: A held. Without a restore, tick 2 sees no press edge.
+        app.world_mut().resource_mut::<InputAccumulator>().held = Buttons::A;
+        app.world_mut().run_schedule(FixedPreUpdate);
+        assert_eq!(app.world().resource::<TickFrame>().prev(), Buttons::A);
+        app.world_mut().resource_mut::<InputAccumulator>().held = Buttons::A;
+        app.world_mut().run_schedule(FixedPreUpdate);
+        assert!(!app.world().resource::<TickInput>().primary_just_pressed);
+
+        // Rewind `prev` to a tick where A was not held: the next tick now
+        // reports the press edge, and the release edge for what `prev` says.
+        app.world_mut()
+            .resource_mut::<TickFrame>()
+            .set_prev(Buttons::RIGHT);
+        app.world_mut().resource_mut::<InputAccumulator>().held = Buttons::A;
+        app.world_mut().run_schedule(FixedPreUpdate);
+        let t = *app.world().resource::<TickInput>();
+        assert!(t.primary_just_pressed);
+        assert_eq!(t.edges.just_pressed, Buttons::A);
+        assert_eq!(t.edges.just_released, Buttons::RIGHT);
     }
 }

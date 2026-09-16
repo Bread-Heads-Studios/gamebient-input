@@ -100,6 +100,7 @@ function handleMessage(data, reply) {
     case 'gx:set':
       if (typeof data.paused === 'boolean') state.commands.push(data.paused ? 'pause' : 'resume');
       if (typeof data.muted === 'boolean') state.commands.push(data.muted ? 'mute:1' : 'mute:0');
+      if (typeof data.seed === 'string' && /^[0-9a-fA-F]{64}$/.test(data.seed)) state.commands.push('seed:' + data.seed.toLowerCase());
       return;
     default:
       return;

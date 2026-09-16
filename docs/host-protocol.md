@@ -31,6 +31,7 @@ Hosts must not assume the game is listening before its hello arrives: the game d
 { "type": "gx:event", "v": 1, "event": "score", "score": 1500 }
 { "type": "gx:event", "v": 1, "event": "paused", "paused": true }     // pause state changed
 { "type": "gx:event", "v": 1, "event": "custom", "name": "lap", "data": { "n": 2 } }
+{ "type": "gx:event", "v": 1, "event": "run", "replay": "<base64 GXR1 bytes>" } // a run ended; its replay
 ```
 
 `state` values are the game's own state names (`Debug` of its `States` enum). Hosts should treat them as opaque strings and match the documented ones: `StudioLogo`, `Menu`, `HowToPlay`, `Playing`, `GameOver` for template-derived games.
@@ -50,9 +51,12 @@ Events are untrusted input to the host. Never award anything server-side from a 
   "ax": 0.0, "ay": 0.0 }           // optional analog, -1..1, y up-positive
 
 { "type": "gx:set", "v": 1, "paused": true }   // also "muted": true|false
+{ "type": "gx:set", "v": 1, "seed": "<64 hex chars>" }   // server-issued seed for the next run
 ```
 
 `gx:set` is advisory: the game applies it if it makes sense in its current state (a game only pauses while playing) and reports the outcome with a `paused` event. A host that pauses a game while showing an overlay should resume it when the overlay goes away.
+
+`seed` is stored and consumed by the next run; a run that starts without one seeds itself and marks the replay `origin = local`. `run` carries the sealed replay of the run that just ended; hosts forward it to their verifier. The format is defined by the game template's `docs/replay-verification.md`.
 
 `gx:input` is a **state**, not an event: send the full held set whenever it changes (and it is fine to send it every frame). The game latches any bit that turns on between two of its frames, so a press shorter than a frame still counts. Send `buttons: 0` on blur or when the host stops relaying so nothing stays held.
 

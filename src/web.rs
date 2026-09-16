@@ -14,7 +14,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::buttons::Buttons;
 use crate::canvas::CanvasPolicy;
-use crate::host::{GxConfig, HostCommand, HostEvent, encode_event, encode_hello};
+use crate::host::{GxConfig, HostCommand, HostEvent, encode_event, encode_hello, parse_command};
 use crate::input::{VirtualInput, collect_input};
 
 #[wasm_bindgen(module = "/js/gx.js")]
@@ -45,7 +45,7 @@ extern "C" {
     fn gx_post_event(json: &str);
 
     /// Host commands received since the previous take, as short strings:
-    /// `hello:1|0`, `pause`, `resume`, `mute:1|0`.
+    /// `hello:1|0`, `pause`, `resume`, `mute:1|0`, `seed:<hex>`.
     #[wasm_bindgen(js_name = gxTakeCommands)]
     fn gx_take_commands() -> js_sys::Array;
 
@@ -111,23 +111,6 @@ fn poll_commands(mut out: MessageWriter<HostCommand>) {
         if let Some(cmd) = parse_command(&s) {
             out.write(cmd);
         }
-    }
-}
-
-/// Decodes the short command strings the JS side queues.
-pub(crate) fn parse_command(s: &str) -> Option<HostCommand> {
-    match s {
-        "pause" => Some(HostCommand::Pause),
-        "resume" => Some(HostCommand::Resume),
-        "mute:1" => Some(HostCommand::Mute(true)),
-        "mute:0" => Some(HostCommand::Mute(false)),
-        "hello:1" => Some(HostCommand::Hello {
-            host_has_controls: true,
-        }),
-        "hello:0" => Some(HostCommand::Hello {
-            host_has_controls: false,
-        }),
-        _ => None,
     }
 }
 
