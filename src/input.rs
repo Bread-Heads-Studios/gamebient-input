@@ -226,6 +226,30 @@ pub struct TickFrame {
     prev: Buttons,
 }
 
+impl TickFrame {
+    /// The held set [`collect_tick_input`] will derive the next tick's press
+    /// and release edges against.
+    ///
+    /// A game that skips sim ticks (a pause, a cutscene) should remember this
+    /// value on the last tick it actually simulated, and restore it with
+    /// [`TickFrame::set_prev`] on every skipped tick. Without that, the first
+    /// tick after the skip derives its edges against input the skipped ticks
+    /// left behind — input a replay of the run never saw, because only
+    /// simulated ticks are recorded — and the live run and its replay
+    /// disagree about `just_pressed` / `just_released`.
+    #[inline]
+    pub fn prev(&self) -> Buttons {
+        self.prev
+    }
+
+    /// Overwrites the held set the next tick's edges are derived against.
+    /// See [`TickFrame::prev`] for why a game that skips sim ticks needs it.
+    #[inline]
+    pub fn set_prev(&mut self, prev: Buttons) {
+        self.prev = prev;
+    }
+}
+
 /// Ordering hooks in `FixedPreUpdate`: a replay feeder runs in `Feed`,
 /// [`collect_tick_input`] in `Collect`.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -515,5 +539,56 @@ mod tests {
         // Both the fixed-tick path and the per-frame path saw the tap.
         assert!(app.world().resource::<TickInput>().primary_just_pressed);
         assert!(app.world().resource::<GameInput>().primary_just_pressed);
+    }
+
+    #[test]
+    fn tick_frame_prev_reports_the_last_collected_held_set() {
+        let mut app = App::new();
+        app.init_resource::<InputAccumulator>()
+            .init_resource::<TickFrame>()
+            .init_resource::<TickInput>()
+            .add_systems(
+                FixedPreUpdate,
+                collect_tick_input.in_set(TickInputSet::Collect),
+            );
+        assert_eq!(app.world().resource::<TickFrame>().prev(), Buttons::NONE);
+        app.world_mut().resource_mut::<InputAccumulator>().held = Buttons::RIGHT;
+        app.world_mut().run_schedule(FixedPreUpdate);
+        assert_eq!(app.world().resource::<TickFrame>().prev(), Buttons::RIGHT);
+    }
+
+    #[test]
+    fn set_prev_is_what_the_next_tick_derives_its_edges_against() {
+        // A game that skipped sim ticks (a pause) restores `prev` to the last
+        // tick it actually simulated, so the tick that resumes reproduces the
+        // same press edge a replay of the recorded ticks would.
+        let mut app = App::new();
+        app.init_resource::<InputAccumulator>()
+            .init_resource::<TickFrame>()
+            .init_resource::<TickInput>()
+            .add_systems(
+                FixedPreUpdate,
+                collect_tick_input.in_set(TickInputSet::Collect),
+            );
+
+        // Tick 1: A held. Without a restore, tick 2 sees no press edge.
+        app.world_mut().resource_mut::<InputAccumulator>().held = Buttons::A;
+        app.world_mut().run_schedule(FixedPreUpdate);
+        assert_eq!(app.world().resource::<TickFrame>().prev(), Buttons::A);
+        app.world_mut().resource_mut::<InputAccumulator>().held = Buttons::A;
+        app.world_mut().run_schedule(FixedPreUpdate);
+        assert!(!app.world().resource::<TickInput>().primary_just_pressed);
+
+        // Rewind `prev` to a tick where A was not held: the next tick now
+        // reports the press edge, and the release edge for what `prev` says.
+        app.world_mut()
+            .resource_mut::<TickFrame>()
+            .set_prev(Buttons::RIGHT);
+        app.world_mut().resource_mut::<InputAccumulator>().held = Buttons::A;
+        app.world_mut().run_schedule(FixedPreUpdate);
+        let t = *app.world().resource::<TickInput>();
+        assert!(t.primary_just_pressed);
+        assert_eq!(t.edges.just_pressed, Buttons::A);
+        assert_eq!(t.edges.just_released, Buttons::RIGHT);
     }
 }
