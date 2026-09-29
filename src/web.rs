@@ -14,7 +14,9 @@ use wasm_bindgen::prelude::*;
 
 use crate::buttons::Buttons;
 use crate::canvas::CanvasPolicy;
-use crate::host::{GxConfig, HostCommand, HostEvent, encode_event, encode_hello, parse_command};
+use crate::host::{
+    GxConfig, HostCommand, HostEvent, encode_event, encode_hello, parse_command, resolve_aspect,
+};
 use crate::input::{VirtualInput, collect_input};
 
 #[wasm_bindgen(module = "/js/gx.js")]
@@ -87,13 +89,14 @@ fn init_web(
     mut policy: ResMut<CanvasPolicy>,
     windows: Query<&Window, With<PrimaryWindow>>,
 ) {
-    let hello = encode_hello(&config, gx_has_touch());
-    gx_init(&hello, &config.extra_host_origins.join(","));
     let derived = windows
         .single()
         .map(CanvasPolicy::from_window)
         .unwrap_or(*policy);
     *policy = derived;
+    // Hello after the policy: its aspect comes from the pinned size.
+    let hello = encode_hello(&config, &resolve_aspect(&config, derived), gx_has_touch());
+    gx_init(&hello, &config.extra_host_origins.join(","));
     if let CanvasPolicy::Pinned { width, height } = derived {
         gx_pin_canvas(width, height);
     }

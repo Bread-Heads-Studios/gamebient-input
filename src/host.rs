@@ -7,6 +7,8 @@ use core::marker::PhantomData;
 use bevy::prelude::*;
 use bevy::state::state::StateTransitionEvent;
 
+use crate::canvas::CanvasPolicy;
+
 /// Protocol version carried in every message as `v`.
 pub const PROTOCOL_VERSION: u32 = 1;
 
@@ -54,8 +56,9 @@ pub enum HostCommand {
 pub struct GxConfig {
     /// Display name reported to the host.
     pub name: String,
-    /// Aspect the canvas is authored for, e.g. `"16:9"`.
-    pub aspect: String,
+    /// Aspect reported to the host, e.g. `"4:3"`. `None` (the default)
+    /// derives it from the primary window's pinned size.
+    pub aspect: Option<String>,
     /// Extra host origins (exact, e.g. `https://partner.example`) accepted
     /// on top of the built-in pattern (production site, Vercel previews,
     /// localhost).
@@ -71,7 +74,7 @@ impl Default for GxConfig {
     fn default() -> Self {
         Self {
             name: "Gamebient Game".into(),
-            aspect: "16:9".into(),
+            aspect: None,
             extra_host_origins: Vec::new(),
             tick_input: false,
             headless: false,
@@ -120,12 +123,25 @@ pub fn encode_event(e: &HostEvent) -> String {
     format!("{{\"type\":\"gx:event\",\"v\":{PROTOCOL_VERSION},{body}}}")
 }
 
+/// Aspect reported when the game has none: `Fit` canvases and headless runs.
+pub const DEFAULT_ASPECT: &str = "16:9";
+
+/// The aspect to report in `gx:hello`: the config's override if set, else
+/// the pinned size's ratio, else [`DEFAULT_ASPECT`].
+pub fn resolve_aspect(config: &GxConfig, policy: CanvasPolicy) -> String {
+    config
+        .aspect
+        .clone()
+        .or_else(|| policy.aspect_label())
+        .unwrap_or_else(|| DEFAULT_ASPECT.to_string())
+}
+
 /// Encodes the game's `gx:hello`.
-pub fn encode_hello(config: &GxConfig, has_touch_controls: bool) -> String {
+pub fn encode_hello(config: &GxConfig, aspect: &str, has_touch_controls: bool) -> String {
     format!(
         "{{\"type\":\"gx:hello\",\"v\":{PROTOCOL_VERSION},\"name\":\"{}\",\"aspect\":\"{}\",\"hasTouchControls\":{has_touch_controls}}}",
         json_escape(&config.name),
-        json_escape(&config.aspect)
+        json_escape(aspect)
     )
 }
 
@@ -276,9 +292,26 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            encode_hello(&cfg, true),
-            r#"{"type":"gx:hello","v":1,"name":"Pizza \"Rush\"","aspect":"16:9","hasTouchControls":true}"#
+            encode_hello(&cfg, "3:4", true),
+            r#"{"type":"gx:hello","v":1,"name":"Pizza \"Rush\"","aspect":"3:4","hasTouchControls":true}"#
         );
+    }
+
+    #[test]
+    fn aspect_follows_the_window_unless_overridden() {
+        use crate::canvas::CanvasPolicy;
+        let auto = GxConfig::default();
+        assert_eq!(auto.aspect, None);
+        assert_eq!(resolve_aspect(&auto, CanvasPolicy::PINNED_3X4), "3:4");
+        assert_eq!(resolve_aspect(&auto, CanvasPolicy::PINNED_720P), "16:9");
+        // Fit games have no authored aspect; hosts get the legacy default.
+        assert_eq!(resolve_aspect(&auto, CanvasPolicy::Fit), DEFAULT_ASPECT);
+
+        let forced = GxConfig {
+            aspect: Some("21:9".into()),
+            ..Default::default()
+        };
+        assert_eq!(resolve_aspect(&forced, CanvasPolicy::PINNED_3X4), "21:9");
     }
 
     #[derive(States, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
