@@ -21,7 +21,7 @@ Hosts must not assume the game is listening before its hello arrives: the game d
 ```jsonc
 { "type": "gx:hello", "v": 1,
   "name": "Gravestone Gauntlet",   // display name
-  "aspect": "4:3",                 // derived from the pinned canvas: "4:3", "1:1", "3:4" or "16:9"
+  "aspect": "4:3",                 // the pinned size in lowest terms, e.g. "4:3", "1:1", "3:4" or "16:9"
   "hasTouchControls": true }       // game can draw its own touch pad
 
 { "type": "gx:event", "v": 1, "event": "ready" }                     // engine running
@@ -39,9 +39,9 @@ Hosts must not assume the game is listening before its hello arrives: the game d
 
 Events are untrusted input to the host. Never award anything server-side from a client-posted `score` without your own verification.
 
-`aspect` matches the game's pinned canvas. It arrives only after the engine has started, so hosts that need the aspect for first layout read `properties.aspect` from the game's metadata and treat the hello value as a cross-check. A game with touch controls letterboxes itself inside whatever frame it is given and keeps its pad clear of the canvas, so hosts must keep the frame full-viewport in in-frame mode rather than shrinking it to `aspect`.
+`aspect` is the game's pinned size reduced to lowest terms. Sanctioned games report "4:3", "1:1", "3:4" or "16:9"; fit-to-parent games report "16:9"; hosts treat any other value as an unknown ratio and fall back to their own default. It arrives only after the engine has started, so hosts that need the aspect for first layout read `properties.aspect` from the game's metadata and treat the hello value as a cross-check. A game with touch controls letterboxes itself inside whatever frame it is given and, in portrait viewports, keeps its pad clear of the canvas, so hosts must keep the frame full-viewport in in-frame mode rather than shrinking it to `aspect`.
 
-`highlight` is a hint for cabinet frames, which pulse the marquee. Hosts rate-limit it (one pulse per ten seconds); other hosts ignore it.
+`highlight` is a hint for cabinet frames, which pulse the marquee. Hosts rate-limit it (one pulse per ten seconds); other hosts ignore it. `color` is `#rrggbb` or null; hosts validate it and fall back to a default colour.
 
 ## Host → game
 

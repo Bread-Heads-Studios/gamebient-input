@@ -63,14 +63,14 @@ The plugin reads your `Window` and records a `CanvasPolicy`:
   | `CanvasPolicy::PINNED_3X4` | 720×960 | 3:4 |
   | `CanvasPolicy::PINNED_720P` | 1280×720 | 16:9 (legacy) |
 
-  `gx:hello` reports the aspect derived from the pinned size; set `GxConfig::aspect` only to override it.
+  `gx:hello` reports the aspect derived from the pinned size; set `GxConfig::aspect` only to override it. Fit-to-parent games report "16:9".
 - `fit_canvas_to_parent: true` → **fit**. The canvas tracks its parent at device resolution; the glue does nothing.
 
 `WindowResolution::with_scale_factor_override` never reduces the number of pixels rendered, on web or native. It only changes the logical size. Do not use it as a render scale.
 
 Your loader needs only `<div id="game-container"><canvas id="game"></canvas></div>`; the glue owns the sizing after `init()`. The canvas must sit inside a dedicated container element (the template's `#game-container`); a canvas directly under `<body>` is not centred.
 
-On a portrait phone the touch pad occupies the bottom 190 CSS px. A canvas that would reach into that strip when centred (3:4 and taller) is aligned to the top and fitted above it; wider canvases stay centred with the pad in the lower bar.
+On a portrait phone the touch pad occupies the bottom 190 CSS px. Any canvas that would reach into that strip when centred is aligned to the top and fitted above it. On a full-height phone (390x844) that is 3:4 and taller; on a short portrait viewport (for example 375x548, Safari with toolbars) it includes 16:9, 4:3 and 1:1 as well. Canvases that stay clear of the strip remain centred. In landscape nothing is reserved.
 
 ## Using it in a game
 
@@ -97,7 +97,7 @@ python3 -m http.server 8082 --directory harness
 GAME_DIST=dist PLAYING_STATE=Playing node ../gamebient-input/harness/conformance.mjs
 ```
 
-Add `EXPECT_BACKBUFFER=<width>x<height>` (the game's pinned size, e.g. `960x720`) to also assert the pinned backbuffer under a real device scale factor (`DEVICE_SCALE_FACTOR`, default 2), and that the canvas was letterboxed to the expected rendered (CSS) box in the viewport — not just that `canvas.width`/`height` happen to match (the HTML default is 300×150, and the pre-`gxPinCanvas` size is the configured 1280×720, so a naive width check can pass before the glue ever runs). Emulated DPR cannot test this; the harness relaunches Chrome with `--force-device-scale-factor`.
+Add `EXPECT_BACKBUFFER=<width>x<height>` (the game's pinned size, e.g. `960x720`) to also assert the pinned backbuffer under a real device scale factor (`DEVICE_SCALE_FACTOR`, default 2), and that the canvas was letterboxed to the expected rendered (CSS) box in the viewport — not just that `canvas.width`/`height` happen to match (the HTML default is 300×150, and the pre-`gxPinCanvas` size is the configured pinned size, so a naive width check can pass before the glue ever runs). Emulated DPR cannot test this; the harness relaunches Chrome with `--force-device-scale-factor`.
 
 It serves `dist/` and the harness on local ports (`GAME_PORT`, `HARNESS_PORT`, `CHROME_PORT` to change), drives the game to `PLAYING_STATE` with alternating `gx:input` and legacy `keyEvent` presses, then checks the touch overlay under touch emulation. Presses are spaced 3 s apart because Bevy clamps the frame delta under software rendering and the template's screen fades gate input.
 

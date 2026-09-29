@@ -320,13 +320,15 @@ export const GX_PAD_BAND = 190;
 
 // Where a w×h box goes in a vw×vh viewport (all CSS px). Centred at the
 // largest fit unless that would reach into the bottom `reserveBottom` px; then
-// it is fitted into the space above the reserve and aligned to the top. Wide
-// canvases on a portrait phone never reach the reserve, so they stay centred
-// with the pad in the lower bar, exactly as before.
+// it is fitted into the space above the reserve and aligned to the top. This
+// applies to any canvas whose centred fit reaches the reserve: on a full-height
+// phone (390x844) that is 3:4 and taller, on a short portrait viewport (375x548)
+// it includes 16:9, 4:3 and 1:1. Landscape reserves nothing. If the reserve
+// leaves no space above it, the centred full fit is used.
 export function gxComputeFit({ vw, vh, w, h, reserveBottom }) {
   const full = Math.min(vw / w, vh / h);
   const reserve = Math.max(0, reserveBottom || 0);
-  if (reserve === 0) return { scale: full, align: 'center' };
+  if (reserve === 0 || vh - reserve <= 0) return { scale: full, align: 'center' };
   const centredBottom = (vh + h * full) / 2;
   if (centredBottom <= vh - reserve) return { scale: full, align: 'center' };
   return { scale: Math.min(vw / w, (vh - reserve) / h), align: 'top' };
@@ -334,7 +336,7 @@ export function gxComputeFit({ vw, vh, w, h, reserveBottom }) {
 
 function padReserve() {
   const showing = state.overlay && !state.overlay.hidden;
-  const portrait = window.innerHeight > window.innerWidth;
+  const portrait = window.matchMedia('(orientation: portrait)').matches;
   return showing && portrait ? GX_PAD_BAND : 0;
 }
 

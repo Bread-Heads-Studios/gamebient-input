@@ -57,7 +57,7 @@ pub struct GxInputPlugin {
 }
 
 impl GxInputPlugin {
-    /// Plugin with the given display name and default aspect.
+    /// Plugin with the given display name and derived aspect.
     pub fn named(name: impl Into<String>) -> Self {
         Self {
             config: GxConfig {

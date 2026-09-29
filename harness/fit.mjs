@@ -20,7 +20,10 @@ const CHROME = env('CHROME', process.platform === 'darwin'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const PHONE = { width: 390, height: 844 };
+const PORTRAITS = [
+  { label: 'portrait 390x844', width: 390, height: 844 },
+  { label: 'portrait 375x548', width: 375, height: 548 },
+];
 const LANDSCAPE = { width: 844, height: 390 };
 const SIZES = [[1280, 720], [960, 720], [720, 720], [720, 960]];
 
@@ -86,7 +89,7 @@ const results = []; let error = null;
 try {
   await sleep(500);
   await connect();
-  for (const [w, h] of SIZES) {
+  for (const PHONE of PORTRAITS) for (const [w, h] of SIZES) {
     const m = await measure(PHONE, w, h);
     const [, top, cw, ch] = m.canvas;
     // Worked out here rather than imported from the glue, so a wrong rule
@@ -99,7 +102,7 @@ try {
     const ratioOk = Math.abs(cw / ch - w / h) < 0.01;
     const placedOk = Math.abs(cw - expectW) <= 1 && Math.abs(top - expectTop) <= 1;
     const ok = m.pads === 3 && m.overlapping === 0 && ratioOk && placedOk;
-    results.push({ viewport: 'portrait', size: `${w}x${h}`, ...m, expectW, expectTop, ok });
+    results.push({ viewport: PHONE.label, size: `${w}x${h}`, ...m, expectW, expectTop, ok });
   }
   // Landscape: nothing is reserved, so the canvas is centred at the largest fit.
   for (const [w, h] of SIZES) {
@@ -115,6 +118,6 @@ try {
   chrome.kill('SIGKILL');
   server.kill('SIGKILL');
 }
-const pass = !error && results.length === SIZES.length * 2 && results.every((r) => r.ok);
+const pass = !error && results.length === SIZES.length * (PORTRAITS.length + 1) && results.every((r) => r.ok);
 console.log(JSON.stringify({ pass, error, results }, null, 2));
 process.exit(pass ? 0 : 1);

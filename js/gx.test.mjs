@@ -51,3 +51,17 @@ test('a negative or missing reserve is treated as zero', () => {
     assert.equal(fit.align, 'center');
   }
 });
+
+test('a reserve larger than the viewport falls back to the centred full fit', () => {
+  const fit = gxComputeFit({ vw: 150, vh: 180, w: 720, h: 720, reserveBottom: GX_PAD_BAND });
+  assert.equal(fit.align, 'center');
+  assert.equal(fit.scale, Math.min(150 / 720, 180 / 720));
+  assert.ok(fit.scale > 0);
+});
+
+test('a reserve exactly equal to the viewport height falls back the same way', () => {
+  const fit = gxComputeFit({ vw: 150, vh: 190, w: 720, h: 720, reserveBottom: GX_PAD_BAND });
+  assert.equal(fit.align, 'center');
+  assert.equal(fit.scale, Math.min(150 / 720, 190 / 720));
+  assert.ok(fit.scale > 0);
+});
