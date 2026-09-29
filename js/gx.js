@@ -298,6 +298,8 @@ function updateOverlayVisibility() {
   if (!state.overlay) return;
   state.overlay.hidden = state.hostHasControls;
   if (state.hostHasControls) state.touch = 0;
+  // The pad band is reserved only while the pad is showing.
+  fitPinnedCanvas();
 }
 
 // --- Canvas policy -----------------------------------------------------------
@@ -310,6 +312,31 @@ function updateOverlayVisibility() {
 // call gxPinCanvas and are left alone.
 let pinned = null; // { width, height } in device pixels
 let armedDpr = 0;  // devicePixelRatio the one live dppx listener is armed for
+
+// Height of the strip along the bottom of a portrait viewport that the touch
+// pad occupies: the 150 px d-pad, its 14 px inset, and room for a home
+// indicator.
+export const GX_PAD_BAND = 190;
+
+// Where a w×h box goes in a vw×vh viewport (all CSS px). Centred at the
+// largest fit unless that would reach into the bottom `reserveBottom` px; then
+// it is fitted into the space above the reserve and aligned to the top. Wide
+// canvases on a portrait phone never reach the reserve, so they stay centred
+// with the pad in the lower bar, exactly as before.
+export function gxComputeFit({ vw, vh, w, h, reserveBottom }) {
+  const full = Math.min(vw / w, vh / h);
+  const reserve = Math.max(0, reserveBottom || 0);
+  if (reserve === 0) return { scale: full, align: 'center' };
+  const centredBottom = (vh + h * full) / 2;
+  if (centredBottom <= vh - reserve) return { scale: full, align: 'center' };
+  return { scale: Math.min(vw / w, (vh - reserve) / h), align: 'top' };
+}
+
+function padReserve() {
+  const showing = state.overlay && !state.overlay.hidden;
+  const portrait = window.innerHeight > window.innerWidth;
+  return showing && portrait ? GX_PAD_BAND : 0;
+}
 
 function fitPinnedCanvas() {
   if (!pinned) return;
@@ -325,9 +352,16 @@ function fitPinnedCanvas() {
   // viewports; the observer would then report the squeezed size.
   c.style.setProperty('flex', 'none');
   c.style.setProperty('display', 'block');
-  c.style.setProperty('transform-origin', 'center center');
-  const s = Math.min(window.innerWidth / w, window.innerHeight / h);
-  c.style.setProperty('transform', `scale(${s})`);
+  const { scale, align } = gxComputeFit({
+    vw: window.innerWidth, vh: window.innerHeight, w, h, reserveBottom: padReserve(),
+  });
+  const top = align === 'top';
+  c.style.setProperty('transform-origin', top ? 'top center' : 'center center');
+  c.style.setProperty('transform', `scale(${scale})`);
+  const parent = c.parentElement;
+  if (parent && parent !== document.body) {
+    parent.style.alignItems = top ? 'flex-start' : 'center';
+  }
   // Re-fit when the device pixel ratio changes (browser zoom, monitor move).
   // Arm one listener per DPR value: fit() also runs on every resize, and
   // re-arming there would accumulate a listener per resize event.
@@ -342,7 +376,8 @@ function pinCanvas(width, height) {
   const c = document.getElementById(CANVAS_ID);
   const parent = c && c.parentElement;
   if (parent && parent !== document.body) {
-    // Centre the scaled canvas in the viewport so the transform letterboxes.
+    // Centre the scaled canvas in the viewport so the transform letterboxes;
+    // fitPinnedCanvas switches the cross axis to the top for tall canvases.
     Object.assign(parent.style, {
       position: 'fixed', inset: '0', display: 'flex',
       alignItems: 'center', justifyContent: 'center',
