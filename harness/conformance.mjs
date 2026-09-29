@@ -8,8 +8,8 @@
 //   3. reaches PLAYING_STATE when driven by gx:input and legacy keyEvent
 //      presses (alternating, spaced out because Bevy clamps the frame delta
 //      under software rendering and screen fades gate input),
-//   4. builds its touch overlay under touch emulation and hides it when a
-//      host declares its own controls.
+//   4. builds its touch overlay under touch emulation, keeps it clear of the
+//      canvas, and hides it when a host declares its own controls.
 //
 // Usage (from the game repo, after build_web.sh):
 //   GAME_DIST=dist node /path/to/gamebient-input/harness/conformance.mjs
@@ -158,6 +158,14 @@ try {
     results.overlayVisible = await evaluate(g, "getComputedStyle(document.getElementById('gx-pad')).display !== 'none'");
     results.overlayButtons = await evaluate(g, "document.querySelectorAll('#gx-pad button').length");
     results.overlayPress = await evaluate(g, `(() => { const b = document.querySelector('#gx-pad .gx-a'); b.dispatchEvent(new PointerEvent('pointerdown', {pointerId: 7, bubbles: true})); const on = b.classList.contains('gx-on'); b.dispatchEvent(new PointerEvent('pointerup', {pointerId: 7, bubbles: true})); return on && !b.classList.contains('gx-on'); })()`);
+    // The pad must not cover the game at any pinned size.
+    results.padClear = await evaluate(g, `(() => {
+      const c = document.getElementById('game').getBoundingClientRect();
+      return [...document.querySelectorAll('#gx-pad .gx-grp')].every((el) => {
+        const p = el.getBoundingClientRect();
+        return !(p.left < c.right && p.right > c.left && p.top < c.bottom && p.bottom > c.top);
+      });
+    })()`);
     await evaluate(g, "window.postMessage({type:'gx:hello', v:1, hostHasControls:true}, location.origin); 1");
     await sleep(500);
     results.overlayHiddenByHost = await evaluate(g, "document.getElementById('gx-pad').hidden === true");
@@ -212,7 +220,7 @@ try {
   chrome.kill('SIGKILL');
   for (const s of servers) s.kill('SIGKILL');
 }
-const required = ['hello', 'ready', 'stateEvent', 'playing', 'pauseCommand', 'overlay', 'overlayVisible', 'overlayPress', 'overlayHiddenByHost'];
+const required = ['hello', 'ready', 'stateEvent', 'playing', 'pauseCommand', 'overlay', 'overlayVisible', 'overlayPress', 'padClear', 'overlayHiddenByHost'];
 if (process.env.EXPECT_BACKBUFFER) required.push('backbuffer');
 results.pass = !results.error && required.every((k) => results[k] === true)
   && results.transitionsBy.gxInput > 0 && results.transitionsBy.keyEvent > 0 && results.consoleErrors.length === 0;

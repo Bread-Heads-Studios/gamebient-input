@@ -1,0 +1,14 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>gx fit check</title>
+<style>html, body { margin: 0; height: 100%; background: #000; }</style>
+<div id="game-container"><canvas id="game" style="background: #246"></canvas></div>
+<script type="module">
+  import { gxInit, gxPinCanvas } from '../js/gx.js';
+  const q = new URLSearchParams(location.search);
+  // Pin first, then init: the overlay appearing must trigger a re-fit.
+  gxPinCanvas(Number(q.get('w')), Number(q.get('h')));
+  gxInit('{"type":"gx:hello","v":1,"name":"fit","aspect":"1:1","hasTouchControls":true}', '');
+  window.__fitReady = true;
+</script>
