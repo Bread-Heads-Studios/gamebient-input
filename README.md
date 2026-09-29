@@ -54,18 +54,29 @@ fn apply_host_commands(mut cmds: MessageReader<HostCommand>, mut paused: ResMut<
 
 The plugin reads your `Window` and records a `CanvasPolicy`:
 
-- `fit_canvas_to_parent: false` → **pinned**. The backbuffer stays at the configured physical size on every display. On wasm the glue sizes the canvas box to `physical / devicePixelRatio` and letterboxes it with a CSS transform, so a 1280×720 game shades 0.92 MP on a 4K TV *and* on a DPR 3 phone. `CanvasPolicy::PINNED_720P.window("Title")` builds the matching `Window`; spread your own fields over it.
+- `fit_canvas_to_parent: false` → **pinned**. The backbuffer stays at the configured physical size on every display. On wasm the glue sizes the canvas box to `physical / devicePixelRatio` and letterboxes it with a CSS transform, so a 960×720 game shades 0.69 MP on a 4K TV *and* on a DPR 3 phone. Build the matching `Window` from one of the sanctioned sizes and spread your own fields over it:
+
+  | Constant | Size | Aspect |
+  |---|---|---|
+  | `CanvasPolicy::PINNED_4X3` | 960×720 | 4:3 |
+  | `CanvasPolicy::PINNED_1X1` | 720×720 | 1:1 |
+  | `CanvasPolicy::PINNED_3X4` | 720×960 | 3:4 |
+  | `CanvasPolicy::PINNED_720P` | 1280×720 | 16:9 (legacy) |
+
+  `gx:hello` reports the aspect derived from the pinned size; set `GxConfig::aspect` only to override it.
 - `fit_canvas_to_parent: true` → **fit**. The canvas tracks its parent at device resolution; the glue does nothing.
 
 `WindowResolution::with_scale_factor_override` never reduces the number of pixels rendered, on web or native. It only changes the logical size. Do not use it as a render scale.
 
 Your loader needs only `<div id="game-container"><canvas id="game"></canvas></div>`; the glue owns the sizing after `init()`. The canvas must sit inside a dedicated container element (the template's `#game-container`); a canvas directly under `<body>` is not centred.
 
+On a portrait phone the touch pad occupies the bottom 190 CSS px. A canvas that would reach into that strip when centred (3:4 and taller) is aligned to the top and fitted above it; wider canvases stay centred with the pad in the lower bar.
+
 ## Using it in a game
 
 ```toml
 [dependencies]
-gamebient-input = { git = "https://github.com/Bread-Heads-Studios/gamebient-input", tag = "v0.2.0" }
+gamebient-input = { git = "https://github.com/Bread-Heads-Studios/gamebient-input", tag = "v0.4.0" }
 ```
 
 The crate depends on `bevy` with `default-features = false` and only the features it needs (`bevy_state`, `bevy_window`, `keyboard`, `gamepad`, `std`); your game's own feature list drives everything else. On wasm it also needs `wasm-bindgen` at the exact version of your `wasm-bindgen-cli`.
@@ -86,7 +97,7 @@ python3 -m http.server 8082 --directory harness
 GAME_DIST=dist PLAYING_STATE=Playing node ../gamebient-input/harness/conformance.mjs
 ```
 
-Add `EXPECT_BACKBUFFER=1280x720` to also assert the pinned backbuffer under a real device scale factor (`DEVICE_SCALE_FACTOR`, default 2), and that the canvas was letterboxed to the expected rendered (CSS) box in the viewport — not just that `canvas.width`/`height` happen to match (the HTML default is 300×150, and the pre-`gxPinCanvas` size is the configured 1280×720, so a naive width check can pass before the glue ever runs). Emulated DPR cannot test this; the harness relaunches Chrome with `--force-device-scale-factor`.
+Add `EXPECT_BACKBUFFER=<width>x<height>` (the game's pinned size, e.g. `960x720`) to also assert the pinned backbuffer under a real device scale factor (`DEVICE_SCALE_FACTOR`, default 2), and that the canvas was letterboxed to the expected rendered (CSS) box in the viewport — not just that `canvas.width`/`height` happen to match (the HTML default is 300×150, and the pre-`gxPinCanvas` size is the configured 1280×720, so a naive width check can pass before the glue ever runs). Emulated DPR cannot test this; the harness relaunches Chrome with `--force-device-scale-factor`.
 
 It serves `dist/` and the harness on local ports (`GAME_PORT`, `HARNESS_PORT`, `CHROME_PORT` to change), drives the game to `PLAYING_STATE` with alternating `gx:input` and legacy `keyEvent` presses, then checks the touch overlay under touch emulation. Presses are spaced 3 s apart because Bevy clamps the frame delta under software rendering and the template's screen fades gate input.
 
@@ -96,4 +107,6 @@ It serves `dist/` and the harness on local ports (`GAME_PORT`, `HARNESS_PORT`, `
 cargo test                                   # unit tests + doctest
 cargo clippy --all-targets -- -D warnings
 cargo check --target wasm32-unknown-unknown  # compiles the web glue
+node --test js/gx.test.mjs                              # web glue unit tests
+node harness/fit.mjs                         # pad never covers the canvas (headless Chrome)
 ```
