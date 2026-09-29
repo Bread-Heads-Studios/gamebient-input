@@ -21,7 +21,7 @@ Hosts must not assume the game is listening before its hello arrives: the game d
 ```jsonc
 { "type": "gx:hello", "v": 1,
   "name": "Gravestone Gauntlet",   // display name
-  "aspect": "16:9",                // canvas aspect the game is authored for
+  "aspect": "4:3",                 // derived from the pinned canvas: "4:3", "1:1", "3:4" or "16:9"
   "hasTouchControls": true }       // game can draw its own touch pad
 
 { "type": "gx:event", "v": 1, "event": "ready" }                     // engine running
@@ -32,13 +32,16 @@ Hosts must not assume the game is listening before its hello arrives: the game d
 { "type": "gx:event", "v": 1, "event": "paused", "paused": true }     // pause state changed
 { "type": "gx:event", "v": 1, "event": "custom", "name": "lap", "data": { "n": 2 } }
 { "type": "gx:event", "v": 1, "event": "run", "replay": "<base64 GXR1 bytes>" } // a run ended; its replay
+{ "type": "gx:event", "v": 1, "event": "highlight", "color": "#ffcc00" } // a celebratory beat; color may be null
 ```
 
 `state` values are the game's own state names (`Debug` of its `States` enum). Hosts should treat them as opaque strings and match the documented ones: `StudioLogo`, `Menu`, `HowToPlay`, `Playing`, `GameOver` for template-derived games.
 
 Events are untrusted input to the host. Never award anything server-side from a client-posted `score` without your own verification.
 
-`aspect` is informational. A game with touch controls letterboxes itself inside whatever frame it is given, and its pad lives in those bars, so hosts must keep the frame full-viewport in in-frame mode rather than shrinking it to `aspect`.
+`aspect` matches the game's pinned canvas. It arrives only after the engine has started, so hosts that need the aspect for first layout read `properties.aspect` from the game's metadata and treat the hello value as a cross-check. A game with touch controls letterboxes itself inside whatever frame it is given and keeps its pad clear of the canvas, so hosts must keep the frame full-viewport in in-frame mode rather than shrinking it to `aspect`.
+
+`highlight` is a hint for cabinet frames, which pulse the marquee. Hosts rate-limit it (one pulse per ten seconds); other hosts ignore it.
 
 ## Host → game
 

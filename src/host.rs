@@ -33,6 +33,10 @@ pub enum HostEvent {
     /// The sealed replay of the run that just ended (`GXR1` bytes). Posted
     /// base64-encoded as `{"event":"run","replay":"..."}`.
     Run(Vec<u8>),
+    /// A short celebratory beat (boss, level clear, big combo). Cabinet
+    /// frames pulse the marquee; they rate-limit it, so games may post
+    /// freely. `color` is `"#rrggbb"`.
+    Highlight { color: Option<String> },
 }
 
 /// Host → game. Emitted by the web glue when a `gx:hello` / `gx:set`
@@ -119,6 +123,10 @@ pub fn encode_event(e: &HostEvent) -> String {
         HostEvent::Run(bytes) => {
             format!("\"event\":\"run\",\"replay\":\"{}\"", base64_encode(bytes))
         }
+        HostEvent::Highlight { color } => match color {
+            Some(c) => format!("\"event\":\"highlight\",\"color\":\"{}\"", json_escape(c)),
+            None => "\"event\":\"highlight\",\"color\":null".to_string(),
+        },
     };
     format!("{{\"type\":\"gx:event\",\"v\":{PROTOCOL_VERSION},{body}}}")
 }
@@ -363,6 +371,20 @@ mod tests {
         assert_eq!(
             encode_event(&HostEvent::Run(b"foo".to_vec())),
             r#"{"type":"gx:event","v":1,"event":"run","replay":"Zm9v"}"#
+        );
+    }
+
+    #[test]
+    fn encodes_highlight() {
+        assert_eq!(
+            encode_event(&HostEvent::Highlight {
+                color: Some("#ffcc00".into())
+            }),
+            r##"{"type":"gx:event","v":1,"event":"highlight","color":"#ffcc00"}"##
+        );
+        assert_eq!(
+            encode_event(&HostEvent::Highlight { color: None }),
+            r#"{"type":"gx:event","v":1,"event":"highlight","color":null}"#
         );
     }
 
