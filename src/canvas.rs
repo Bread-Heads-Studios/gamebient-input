@@ -29,10 +29,29 @@ pub enum CanvasPolicy {
 }
 
 impl CanvasPolicy {
-    /// The Gamebient fleet default: 720p, the Pi fill-rate budget.
+    /// Legacy 16:9. The largest sanctioned size: 0.92 MP, the Pi fill-rate
+    /// budget.
     pub const PINNED_720P: Self = Self::Pinned {
         width: 1280,
         height: 720,
+    };
+
+    /// 4:3 landscape, the template default.
+    pub const PINNED_4X3: Self = Self::Pinned {
+        width: 960,
+        height: 720,
+    };
+
+    /// 1:1 square. Looks the same on horizontal and vertical cabinets.
+    pub const PINNED_1X1: Self = Self::Pinned {
+        width: 720,
+        height: 720,
+    };
+
+    /// 3:4 portrait.
+    pub const PINNED_3X4: Self = Self::Pinned {
+        width: 720,
+        height: 960,
     };
 
     /// Reads the policy off a configured `Window`.
@@ -69,6 +88,26 @@ impl CanvasPolicy {
             ..default()
         }
     }
+
+    /// The pinned size as a reduced ratio, e.g. `"4:3"`. `None` for `Fit`
+    /// (no authored aspect) and for a zero dimension.
+    pub fn aspect_label(self) -> Option<String> {
+        let Self::Pinned { width, height } = self else {
+            return None;
+        };
+        if width == 0 || height == 0 {
+            return None;
+        }
+        let g = gcd(width, height);
+        Some(format!("{}:{}", width / g, height / g))
+    }
+}
+
+fn gcd(mut a: u32, mut b: u32) -> u32 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
 }
 
 #[cfg(test)]
@@ -118,6 +157,46 @@ mod tests {
                 .window("t")
                 .resolution
                 .scale_factor_override(),
+            None
+        );
+    }
+
+    #[test]
+    fn sanctioned_sizes_carry_their_aspect_label() {
+        assert_eq!(
+            CanvasPolicy::PINNED_4X3,
+            CanvasPolicy::Pinned {
+                width: 960,
+                height: 720
+            }
+        );
+        assert_eq!(
+            CanvasPolicy::PINNED_1X1,
+            CanvasPolicy::Pinned {
+                width: 720,
+                height: 720
+            }
+        );
+        assert_eq!(
+            CanvasPolicy::PINNED_3X4,
+            CanvasPolicy::Pinned {
+                width: 720,
+                height: 960
+            }
+        );
+
+        let label = |p: CanvasPolicy| p.aspect_label();
+        assert_eq!(label(CanvasPolicy::PINNED_720P).as_deref(), Some("16:9"));
+        assert_eq!(label(CanvasPolicy::PINNED_4X3).as_deref(), Some("4:3"));
+        assert_eq!(label(CanvasPolicy::PINNED_1X1).as_deref(), Some("1:1"));
+        assert_eq!(label(CanvasPolicy::PINNED_3X4).as_deref(), Some("3:4"));
+        // Fit has no authored aspect; a zero dimension has none either.
+        assert_eq!(label(CanvasPolicy::Fit), None);
+        assert_eq!(
+            label(CanvasPolicy::Pinned {
+                width: 0,
+                height: 720
+            }),
             None
         );
     }
