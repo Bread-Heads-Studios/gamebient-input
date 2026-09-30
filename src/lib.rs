@@ -87,9 +87,9 @@ impl Plugin for GxInputPlugin {
         // by DefaultPlugins, so this plugin must come after them). Without a
         // primary window (tests, headless tools, or this plugin added before
         // WindowPlugin) there is nothing to pin yet, so this defaults to
-        // Fit; on wasm, Startup's init_web re-derives from the primary
-        // window (which is guaranteed to exist by then) and is the source
-        // of truth, updating this resource in place.
+        // Fit. A Pinned policy read here is final, because this is the window
+        // exactly as the game configured it; only when this falls back to Fit
+        // does wasm's init_web re-derive from the live window at Startup.
         let policy = if self.config.headless {
             CanvasPolicy::Fit
         } else {

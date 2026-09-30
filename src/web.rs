@@ -78,21 +78,19 @@ impl Plugin for WebPlugin {
     }
 }
 
-/// The plugin's `build()` derives `CanvasPolicy` from the primary `Window`
-/// too, but `build()` runs before `DefaultPlugins` inserts that window if a
-/// game orders its plugins differently, silently falling back to `Fit`. By
-/// Startup the window is guaranteed to exist, so this is the source of
-/// truth: re-derive here, update the resource so introspection matches, and
-/// only then decide whether to pin the canvas.
+/// The plugin's `build()` records `CanvasPolicy` from the primary `Window`
+/// as the game configured it. That is the source of truth for a pinned
+/// size: by Startup, winit may already have resized the window to the
+/// canvas's device-pixel box, so the live window would report the pinned
+/// size multiplied by the device pixel ratio and the pin would do nothing.
+/// Only a build-time `Fit` (a fit-to-parent game, or this plugin added
+/// before `WindowPlugin`) is re-derived from the live window here.
 fn init_web(
     config: Res<GxConfig>,
     mut policy: ResMut<CanvasPolicy>,
     windows: Query<&Window, With<PrimaryWindow>>,
 ) {
-    let derived = windows
-        .single()
-        .map(CanvasPolicy::from_window)
-        .unwrap_or(*policy);
+    let derived = policy.at_startup(windows.single().ok());
     *policy = derived;
     // Hello after the policy: its aspect comes from the pinned size.
     let hello = encode_hello(&config, &resolve_aspect(&config, derived), gx_has_touch());

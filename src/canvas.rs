@@ -66,6 +66,23 @@ impl CanvasPolicy {
         }
     }
 
+    /// The policy to act on at `Startup`, given the one recorded at plugin
+    /// build and the live primary window.
+    ///
+    /// A `Pinned` size recorded at build is the size the game configured and
+    /// always wins. By `Startup`, winit may have resized the window to the
+    /// canvas's device-pixel box (a 960 px CSS box at DPR 2 reads as 1920),
+    /// so the live window cannot be trusted for the pinned size. A
+    /// build-time `Fit` falls back to the live window: either the game
+    /// really is fit-to-parent, or the plugin was added before
+    /// `WindowPlugin` and there was no window to read at build.
+    pub fn at_startup(self, live_window: Option<&Window>) -> Self {
+        match self {
+            Self::Pinned { .. } => self,
+            Self::Fit => live_window.map(Self::from_window).unwrap_or(Self::Fit),
+        }
+    }
+
     /// A `Window` configured for this policy, targeting `#game`. Spread your
     /// own fields over it: `Window { present_mode: PresentMode::Fifo, ..policy.window("Title") }`.
     pub fn window(self, title: impl Into<String>) -> Window {
@@ -201,6 +218,45 @@ mod tests {
         );
     }
 
+    /// winit can resize the window to the canvas's device-pixel box before
+    /// Startup (960 CSS px at DPR 2 reads as 1920). The size recorded at
+    /// plugin build is what the game asked for and must win.
+    #[test]
+    fn a_pinned_size_recorded_at_build_survives_a_resized_window() {
+        let mut live = CanvasPolicy::PINNED_4X3.window("t");
+        live.resolution.set_physical_resolution(1920, 1440);
+        assert_eq!(
+            CanvasPolicy::from_window(&live),
+            CanvasPolicy::Pinned {
+                width: 1920,
+                height: 1440
+            },
+            "precondition: the live window no longer shows the configured size"
+        );
+        assert_eq!(
+            CanvasPolicy::PINNED_4X3.at_startup(Some(&live)),
+            CanvasPolicy::PINNED_4X3
+        );
+        assert_eq!(
+            CanvasPolicy::PINNED_4X3.at_startup(None),
+            CanvasPolicy::PINNED_4X3
+        );
+    }
+
+    /// A build-time `Fit` means either a real fit-to-parent game or a plugin
+    /// added before `WindowPlugin`; only then is the live window consulted.
+    #[test]
+    fn a_fit_policy_at_build_falls_back_to_the_live_window() {
+        let pinned = CanvasPolicy::PINNED_3X4.window("t");
+        assert_eq!(
+            CanvasPolicy::Fit.at_startup(Some(&pinned)),
+            CanvasPolicy::PINNED_3X4
+        );
+        let fit = CanvasPolicy::Fit.window("t");
+        assert_eq!(CanvasPolicy::Fit.at_startup(Some(&fit)), CanvasPolicy::Fit);
+        assert_eq!(CanvasPolicy::Fit.at_startup(None), CanvasPolicy::Fit);
+    }
+
     #[test]
     fn plugin_records_the_primary_window_policy() {
         use crate::GxInputPlugin;
@@ -231,10 +287,10 @@ mod tests {
     /// `GxInputPlugin` before `WindowPlugin` (instead of after
     /// `DefaultPlugins`, as documented) hits this plugin's build() before
     /// the primary window exists: the build-time resource falls back to
-    /// `Fit` and stays wrong until Startup. This documents that fallback —
-    /// wasm's `init_web` re-derives from the real window at Startup and is
-    /// the actual source of truth (exercised by the harness, not unit
-    /// tests, since it only runs on wasm32).
+    /// `Fit` and stays wrong until Startup. This documents that fallback: in
+    /// this misordered case the Startup fallback reads the live window, which
+    /// can already carry a device-pixel size, so games must add the plugin
+    /// after `DefaultPlugins`.
     #[test]
     fn plugin_before_window_plugin_degrades_to_fit_at_build_time() {
         use crate::GxInputPlugin;

@@ -66,6 +66,8 @@ The plugin reads your `Window` and records a `CanvasPolicy`:
   `gx:hello` reports the aspect derived from the pinned size; set `GxConfig::aspect` only to override it. Fit-to-parent games report "16:9".
 - `fit_canvas_to_parent: true` → **fit**. The canvas tracks its parent at device resolution; the glue does nothing.
 
+Add `GxInputPlugin` after `DefaultPlugins`. The pinned size is read from your `Window` when the plugin is built, before the browser has resized anything; a plugin added earlier falls back to reading the live window at startup, which on a high-DPI display can already report the size multiplied by the device pixel ratio.
+
 `WindowResolution::with_scale_factor_override` never reduces the number of pixels rendered, on web or native. It only changes the logical size. Do not use it as a render scale.
 
 Your loader needs only `<div id="game-container"><canvas id="game"></canvas></div>`; the glue owns the sizing after `init()`. The canvas must sit inside a dedicated container element (the template's `#game-container`); a canvas directly under `<body>` is not centred.
