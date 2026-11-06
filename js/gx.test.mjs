@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { GX_PAD_BAND, gxComputeFit } from './gx.js';
+import { GX_PAD_BAND, gxComputeFit, gxCustomCommand } from './gx.js';
 
 const PHONE = { vw: 390, vh: 844 };
 const near = (a, b) => Math.abs(a - b) < 1e-3;
@@ -64,4 +64,11 @@ test('a reserve exactly equal to the viewport height falls back the same way', (
   assert.equal(fit.align, 'center');
   assert.equal(fit.scale, Math.min(150 / 720, 190 / 720));
   assert.ok(fit.scale > 0);
+});
+
+test('gx:custom becomes a custom:<name>:<json> command', () => {
+  assert.equal(gxCustomCommand('tunables.set', { 'ammo.start': 8 }), 'custom:tunables.set:{"ammo.start":8}');
+  assert.equal(gxCustomCommand('run.restart', undefined), 'custom:run.restart:null');
+  assert.equal(gxCustomCommand('Bad Name', {}), null);
+  assert.equal(gxCustomCommand(42, {}), null);
 });

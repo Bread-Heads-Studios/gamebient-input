@@ -102,6 +102,11 @@ function handleMessage(data, reply) {
       if (typeof data.muted === 'boolean') state.commands.push(data.muted ? 'mute:1' : 'mute:0');
       if (typeof data.seed === 'string' && /^[0-9a-fA-F]{64}$/.test(data.seed)) state.commands.push('seed:' + data.seed.toLowerCase());
       return;
+    case 'gx:custom': {
+      const cmd = gxCustomCommand(data.name, data.data);
+      if (cmd) state.commands.push(cmd);
+      return;
+    }
     default:
       return;
   }
@@ -448,6 +453,17 @@ export function gxTakeCommands() {
   const c = state.commands;
   state.commands = [];
   return c;
+}
+
+// The command string for a `gx:custom` message, or null when the name is
+// not a dotted lower-case identifier. `data` is re-serialised so the Rust
+// side always receives valid JSON text (`null` when absent).
+export function gxCustomCommand(name, data) {
+  if (typeof name !== 'string' || !/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/.test(name)) return null;
+  let json;
+  try { json = JSON.stringify(data === undefined ? null : data); } catch (_) { return null; }
+  if (json === undefined) return null;
+  return 'custom:' + name + ':' + json;
 }
 
 export function gxHasTouch() {

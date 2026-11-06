@@ -29,13 +29,13 @@ fn jump(input: Res<GameInput>) {
 - **The canon bindings**, in one tested place: arrows + WASD / D-pad / left stick to move; Z or Space, South or North for A; X or Shift, West or East for B; Enter or pad Start to confirm; Escape or gamepad Start to pause.
 - **Frame-coherent edges** computed on the union of sources, with a latch so a tap shorter than a frame still registers and a button is only "released" when no device holds it.
 - **On wasm**, via `js/gx.js` shipped by wasm-bindgen as a snippet:
-  - the ColecoVision GX **host protocol** (`gx:hello`, `gx:input`, `gx:event`, `gx:set`), see [`docs/host-protocol.md`](docs/host-protocol.md);
+  - the ColecoVision GX **host protocol** (`gx:hello`, `gx:input`, `gx:event`, `gx:set`, `gx:custom`), see [`docs/host-protocol.md`](docs/host-protocol.md);
   - the legacy **`keyEvent` bridge**, replayed as synthetic keyboard events exactly as before;
   - a **Gamepad API** poller with the standard mapping, so pads work in the browser without a parent page;
   - a **Presentation API** receiver for the TV cast path;
   - a **DOM touch overlay** (D-pad, A, B, Start, Select, Pause) shown on touch devices unless the host says it draws its own pad. Its taps are real user activation inside the game document, so audio unlocks.
 - **`StateEvents::<S>`** posts a `state` event to the host on every transition, and the plugin posts `ready` at startup. Write `HostEvent::Started`, `HostEvent::GameOver`, `HostEvent::Score(n)` and `HostEvent::Paused(b)` from your systems for the rest.
-- **`HostCommand`** messages (`Pause`, `Resume`, `Mute(bool)`, `Hello`) arrive when a host sends `gx:set` / `gx:hello`; handle the ones that make sense for your game:
+- **`HostCommand`** messages (`Pause`, `Resume`, `Mute(bool)`, `Hello`, `Seed`, `Custom { name, data }`) arrive when a host sends `gx:set` / `gx:hello` / `gx:custom`; handle the ones that make sense for your game:
 
 ```rust
 fn apply_host_commands(mut cmds: MessageReader<HostCommand>, mut paused: ResMut<Paused>) {

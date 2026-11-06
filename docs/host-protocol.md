@@ -57,6 +57,12 @@ Events are untrusted input to the host. Never award anything server-side from a 
 { "type": "gx:set", "v": 1, "seed": "<64 hex chars>" }   // server-issued seed for the next run
 ```
 
+```jsonc
+{ "type": "gx:custom", "v": 1, "name": "tunables.set", "data": { "ammo.start": 8 } }
+```
+
+`gx:custom` is the host→game twin of the `custom` event. `name` is a dotted lower-case identifier agreed out of band (the Gamebient editor uses `tunables.list`, `tunables.set`, `checks.run`, `run.restart`); `data` is any JSON value, delivered to the game as `HostCommand::Custom { name, data }` with `data` as JSON text. A game ignores names it does not know; the message is subject to the same origin rules as every other.
+
 `gx:set` is advisory: the game applies it if it makes sense in its current state (a game only pauses while playing) and reports the outcome with a `paused` event. A host that pauses a game while showing an overlay should resume it when the overlay goes away.
 
 `seed` is stored and consumed by the next run; a run that starts without one seeds itself and marks the replay `origin = local`. `run` carries the sealed replay of the run that just ended; hosts forward it to their verifier. The format is defined by the game template's `docs/replay-verification.md`.

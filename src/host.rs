@@ -53,6 +53,15 @@ pub enum HostCommand {
     Mute(bool),
     /// A server-issued run seed (32 bytes) for the next run.
     Seed([u8; 32]),
+    /// A named host→game message (`gx:custom`). The crate does not
+    /// interpret it: `name` is agreed between a host and a game out of band
+    /// (the Gamebient editor's `tunables.*`, `checks.run`, `run.restart`),
+    /// and `data` is the message's `data` field as JSON text (`"null"` when
+    /// absent). Games ignore names they do not know.
+    Custom {
+        name: String,
+        data: String,
+    },
 }
 
 /// Static description of this game for the `gx:hello` handshake.
@@ -195,10 +204,21 @@ pub fn parse_seed_hex(s: &str) -> Option<[u8; 32]> {
 }
 
 /// Decodes the short command strings the JS side queues:
-/// `hello:1|0`, `pause`, `resume`, `mute:1|0`, `seed:<64 hex>`.
+/// `hello:1|0`, `pause`, `resume`, `mute:1|0`, `seed:<64 hex>`,
+/// `custom:<name>:<json>`.
 pub fn parse_command(s: &str) -> Option<HostCommand> {
     if let Some(hex) = s.strip_prefix("seed:") {
         return parse_seed_hex(hex).map(HostCommand::Seed);
+    }
+    if let Some(rest) = s.strip_prefix("custom:") {
+        let (name, data) = rest.split_once(':')?;
+        if name.is_empty() {
+            return None;
+        }
+        return Some(HostCommand::Custom {
+            name: name.to_string(),
+            data: data.to_string(),
+        });
     }
     match s {
         "pause" => Some(HostCommand::Pause),
@@ -406,5 +426,33 @@ mod tests {
             Some(HostCommand::Seed([0xab; 32]))
         );
         assert_eq!(parse_command("seed:nope"), None);
+    }
+
+    #[test]
+    fn parses_custom_command() {
+        assert_eq!(
+            parse_command("custom:tunables.set:{\"ammo.start\":8}"),
+            Some(HostCommand::Custom {
+                name: "tunables.set".into(),
+                data: "{\"ammo.start\":8}".into()
+            })
+        );
+        assert_eq!(
+            parse_command("custom:run.restart:null"),
+            Some(HostCommand::Custom {
+                name: "run.restart".into(),
+                data: "null".into()
+            })
+        );
+        // The JSON may itself contain colons; only the first two split.
+        assert_eq!(
+            parse_command("custom:a:{\"k\":\"v:w\"}"),
+            Some(HostCommand::Custom {
+                name: "a".into(),
+                data: "{\"k\":\"v:w\"}".into()
+            })
+        );
+        assert_eq!(parse_command("custom:"), None);
+        assert_eq!(parse_command("custom:no-json"), None);
     }
 }
